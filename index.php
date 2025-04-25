@@ -1,14 +1,19 @@
 <?php
-session_start();
-require_once 'config.php'; // Inclure avant toute utilisation de $db
+session_start([
+    'cookie_path' => '/',
+    'cookie_secure' => false, // Set to true if using HTTPS
+    'cookie_httponly' => true,
+    'use_strict_mode' => true
+]);
+require_once 'config.php';
 
-// Vérifier que la connexion existe
 if (!isset($db) || !($db instanceof mysqli)) {
     die("Database connection not established");
 }
 
 $page_title = "Comfort Chairs - Home";
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -46,7 +51,7 @@ $page_title = "Comfort Chairs - Home";
                             
                             
                             <?php if($_SESSION['role'] === 'admin'): ?>
-                                <a href="admin/dashboard.php" class="admin-link">
+                                <a href="dashboard.php" class="admin-link">
                                     <i class="fas fa-tachometer-alt"></i> Dashboard
                                 </a>
                             <?php endif; ?>

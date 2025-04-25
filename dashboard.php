@@ -1,31 +1,43 @@
 <?php
-require_once 'config.php';
+session_start();
 
-// Vérification de l'authentification et des droits admin
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || $_SESSION['role'] !== 'admin') {
-    header('Location: index.php');
+// Vérification admin
+if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
+    header('Location: login.php');
     exit();
 }
 
-// Récupération des statistiques
+require_once 'config.php';
+
+if (!isset($db) || !($db instanceof mysqli)) {
+    die("Database connection error");
+}
+
+// Initialisation des variables avec des valeurs par défaut
+$total_users = 0;
+$total_products = 0;
+$recent_users = [];
+$low_stock = []; // Initialisation cruciale
+$dashboard_error = null;
+
 try {
     // Nombre total d'utilisateurs
-    $stmt = $pdo->query("SELECT COUNT(*) as total_users FROM users");
-    $total_users = $stmt->fetch()['total_users'];
+    $result = $db->query("SELECT COUNT(*) as total_users FROM users");
+    $total_users = $result->fetch_assoc()['total_users'] ?? 0;
     
     // Nombre total de produits
-    $stmt = $pdo->query("SELECT COUNT(*) as total_products FROM products");
-    $total_products = $stmt->fetch()['total_products'];
+    $result = $db->query("SELECT COUNT(*) as total_products FROM products");
+    $total_products = $result->fetch_assoc()['total_products'] ?? 0;
     
     // Derniers utilisateurs inscrits
-    $stmt = $pdo->query("SELECT name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
-    $recent_users = $stmt->fetchAll();
+    $result = $db->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
+    $recent_users = $result->fetch_all(MYSQLI_ASSOC) ?: [];
     
     // Produits avec faible stock
-    $stmt = $pdo->query("SELECT name, stock_quantity FROM products WHERE stock_quantity < 5 ORDER BY stock_quantity ASC");
-    $low_stock = $stmt->fetchAll();
+    $result = $db->query("SELECT id, name, stock_quantity FROM products WHERE stock_quantity < 5 ORDER BY stock_quantity ASC");
+    $low_stock = $result->fetch_all(MYSQLI_ASSOC) ?: [];
 
-} catch (PDOException $e) {
+} catch (Exception $e) {
     error_log("Dashboard error: " . $e->getMessage());
     $dashboard_error = "Erreur lors du chargement des données";
 }
@@ -192,7 +204,7 @@ try {
                 <h1>Admin Dashboard</h1>
                 <div>
                     <span>Welcome, <?= htmlspecialchars($_SESSION['username']) ?> </span>
-                    <a href="../logout.php" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                    <a href="logout.php" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
                 </div>
             </div>
             
@@ -205,7 +217,7 @@ try {
                 <div class="stat-card">
                     <h3>Total Users</h3>
                     <div class="value"><?= $total_users ?></div>
-                    <a href="users.php">View all users</a>
+                    <a href="liste_users.php">View all users</a>
                 </div>
                 
                 <div class="stat-card">

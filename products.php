@@ -1,11 +1,26 @@
 <?php
-session_start();
+// Début absolu - aucun espace avant !
+ob_start();
+session_start([
+    'cookie_lifetime' => 86400,
+    'cookie_path' => '/',
+    'cookie_secure' => isset($_SERVER['HTTPS']), // true si HTTPS
+    'cookie_httponly' => true,
+    'cookie_samesite' => 'Lax',
+    'use_strict_mode' => true
+]);
+
+error_log("PRODUCT.PHP - Session ID: ".session_id());
+
 require_once 'config.php';
 
-// Set page title
-$page_title = "Product Details - Comfort Chairs";
+// Vérification immédiate de la connexion à la base de données
+if (!isset($db) || !($db instanceof mysqli) || $db->connect_errno) {
+    header("Location: maintenance.php");
+    exit();
+}
 
-// Check if product ID is provided
+// Vérification de l'ID du produit
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
     header("Location: products.php");
     exit();
@@ -13,9 +28,16 @@ if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
 
 $product_id = intval($_GET['id']);
 
-// Fetch product details
+// Récupération des détails du produit
 $query = "SELECT * FROM products WHERE id = ?";
 $stmt = $db->prepare($query);
+
+if (!$stmt) {
+    error_log("Erreur de préparation: " . $db->error);
+    header("Location: products.php");
+    exit();
+}
+
 $stmt->bind_param("i", $product_id);
 $stmt->execute();
 $result = $stmt->get_result();
@@ -26,35 +48,40 @@ if (!$product) {
     exit();
 }
 
-// Update page title with product name
-$page_title = $product['name'] . " - Comfort Chairs";
+// Titre de la page
+$page_title = htmlspecialchars($product['name']) . " - Comfort Chairs";
 
-// Handle adding to cart
-if (isset($_POST['add_to_cart'])) {
+// Gestion de l'ajout au panier
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
     if (!isset($_SESSION['cart'])) {
-        $_SESSION['cart'] = array();
+        $_SESSION['cart'] = [];
     }
+
+    $quantity = max(1, intval($_POST['quantity'] ?? 1));
     
-    $quantity = isset($_POST['quantity']) ? intval($_POST['quantity']) : 1;
+    // Régénération de l'ID de session pour la sécurité
+    session_regenerate_id(true);
     
-    if (array_key_exists($product_id, $_SESSION['cart'])) {
-        $_SESSION['cart'][$product_id] += $quantity;
-    } else {
-        $_SESSION['cart'][$product_id] = $quantity;
-    }
+    $_SESSION['cart'][$product_id] = ($_SESSION['cart'][$product_id] ?? 0) + $quantity;
+    $_SESSION['flash_message'] = "Produit ajouté au panier !";
     
-    $_SESSION['message'] = "Product added to cart successfully!";
     header("Location: cart.php");
     exit();
 }
+
+// Fin de la bufferisation
+ob_end_flush();
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title><?php echo $page_title; ?></title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="/chairhub/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
