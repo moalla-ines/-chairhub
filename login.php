@@ -1,5 +1,5 @@
 <?php
-// Start session with secure settings
+// Démarrage de session sécurisé
 session_start([
     'cookie_lifetime' => 86400,
     'cookie_secure' => isset($_SERVER['HTTPS']),
@@ -7,45 +7,52 @@ session_start([
     'cookie_samesite' => 'Strict'
 ]);
 
-// Database configuration
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_NAME', 'e_commerce');
+require_once 'config.php';
 
-// Create connection
-try {
-    $pdo = new PDO("mysql:host=".DB_HOST.";dbname=".DB_NAME, DB_USER, DB_PASS);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch(PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
+// Vérification de la connexion (adaptée pour MySQLi)
+if (!isset($db) || !($db instanceof mysqli)) {
+    die("Erreur de connexion à la base de données. Vérifiez config.php");
 }
 
-// Handle login form submission
-$error = '';
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $email = trim($_POST['email'] ?? '');
+$error = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $email = filter_input(INPUT_POST, 'email', FILTER_SANITIZE_EMAIL);
     $password = $_POST['password'] ?? '';
     
-    if (empty($email) || empty($password)) {
-        $error = "Please enter both email and password";
-    } else {
-        try {
-            $stmt = $pdo->prepare("SELECT iduser, email, password FROM users WHERE email = ?");
-            $stmt->execute([$email]);
-            $user = $stmt->fetch();
+    try {
+        // Version MySQLi (correspondant à config.php)
+        $stmt = $db->prepare("SELECT iduser, name, email, password, role FROM users WHERE email = ?");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $user = $result->fetch_assoc();
+        
+        if ($user && password_verify($password, $user['password'])) {
+            // Régénération de l'ID de session
+            session_regenerate_id(true);
             
-            if ($user && password_verify($password, $user['password'])) {
-                $_SESSION['iduser'] = $user['iduser'];
-                $_SESSION['email'] = $user['email'];
-                header("Location: index.php");
-                exit();
-            } else {
-                $error = "Invalid email or password";
-            }
-        } catch(PDOException $e) {
-            $error = "Database error: " . $e->getMessage();
+            $_SESSION = [
+                'user_id' => $user['iduser'],
+                'username' => $user['name'],
+                'email' => $user['email'],
+                'role' => $user['role'],
+                'logged_in' => true
+            ];
+            // Après $_SESSION = [...];
+echo '<script>
+console.log("Session utilisateur :", '.json_encode($_SESSION).');
+</script>';
+// Puis votre header('Location...');
+            header('Location: index.php');
+            exit();
+        } else {
+            $error = "Email ou mot de passe incorrect";
+            sleep(1); // Protection contre les attaques brute-force
         }
+    } catch (Exception $e) {
+        error_log("Login error: " . $e->getMessage());
+        $error = "Une erreur est survenue. Veuillez réessayer.";
     }
 }
 ?>
@@ -167,19 +174,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <h1>Login to Your Account</h1>
             
             <?php if ($error): ?>
-                <div class="alert error"><?= htmlspecialchars($error) ?></div>
+                <div class="alert error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
             <?php endif; ?>
             
-            <form method="POST">
+            <form method="POST" autocomplete="off">
                 <div class="form-group">
                     <label for="email">Email Address</label>
-                    <input type="email" id="email" name="email" required value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
+                    <input type="email" id="email" name="email" required 
+                           value="<?= htmlspecialchars($_POST['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                 </div>
                 
                 <div class="form-group">
                     <label for="password">Password</label>
                     <div class="password-input">
-                        <input type="password" id="password" name="password" required>
+                        <input type="password" id="password" name="password" required autocomplete="current-password">
                         <i class="fas fa-eye password-toggle"></i>
                     </div>
                 </div>
