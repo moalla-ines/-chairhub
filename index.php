@@ -1,9 +1,9 @@
 <?php
 session_start([
-    'cookie_path' => '/',
-    'cookie_secure' => false, // Set to true if using HTTPS
+    'cookie_lifetime' => 86400,
+    'cookie_secure' => isset($_SERVER['HTTPS']),
     'cookie_httponly' => true,
-    'use_strict_mode' => true
+    'cookie_samesite' => 'Strict'
 ]);
 require_once 'config.php';
 
@@ -126,7 +126,7 @@ $page_title = "Comfort Chairs - Home";
                          onerror="this.src=\'images/default.jpg\';this.alt=\'Image non disponible\'">';
                     echo '<h3>'.htmlspecialchars($row['name']).'</h3>';
                     echo '<p class="price">$'.number_format($row['price'], 2).'</p>';
-                    echo '<a href="product.php?id='.$row['id'].'" class="btn">View Details</a>';
+                    echo '<a href="details_product.php?id='.$row['id'].'" class="btn">View Details</a>';
                     echo '</div>';
                 }
             } else {

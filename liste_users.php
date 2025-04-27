@@ -85,6 +85,19 @@ try {
         }
         .delete-link {
             color: #e74c3c;
+            .back-icon {
+    display: inline-block;
+    margin-bottom: 20px;
+    text-decoration: none;
+    color: #007bff;
+    font-size: 1.5em;
+    transition: color 0.3s;
+}
+
+.back-icon:hover {
+    color: #0056b3;
+}
+
         }
     </style>
 </head>
@@ -112,8 +125,14 @@ try {
             ?>
         </div>
     <?php endif; ?>
-    
-    <a href="create_user.php" class="add-user-btn">
+
+    <!-- Lien de retour vers le dashboard -->
+    <a href="dashboard.php" class="back-icon" title="Retour au tableau de bord">
+    <i class="fas fa-arrow-left"></i>
+</a>
+
+    <!-- Bouton de création d'utilisateur -->
+    <a href="create_user.php" class="add-user-btn" style="margin-left: 20px;">
         <i class="fas fa-user-plus"></i> Create User
     </a>
     
@@ -144,7 +163,6 @@ try {
                         </span>
                     </td>
                     <td class="action-links">
-                       
                         <a href="edit_users.php?id=<?= $user['iduser'] ?>" title="Edit">
                             <i class="fas fa-edit"></i>
                         </a>
@@ -166,7 +184,7 @@ try {
     </table>
 
     <script>
-        // Confirmation for deletion
+        // Confirmation pour la suppression
         document.querySelectorAll('.delete-link').forEach(link => {
             link.addEventListener('click', (e) => {
                 if (!confirm('Do you really want to delete this user?')) {

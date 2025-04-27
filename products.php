@@ -1,88 +1,221 @@
 <?php
 // Début absolu - aucun espace avant !
 ob_start();
+
 session_start([
     'cookie_lifetime' => 86400,
-    'cookie_path' => '/',
-    'cookie_secure' => isset($_SERVER['HTTPS']), // true si HTTPS
+    'cookie_secure' => isset($_SERVER['HTTPS']),
     'cookie_httponly' => true,
-    'cookie_samesite' => 'Lax',
-    'use_strict_mode' => true
+    'cookie_samesite' => 'Lax'
 ]);
-
-error_log("PRODUCT.PHP - Session ID: ".session_id());
 
 require_once 'config.php';
 
-// Vérification immédiate de la connexion à la base de données
-if (!isset($db) || !($db instanceof mysqli) || $db->connect_errno) {
-    header("Location: maintenance.php");
-    exit();
+if (!isset($db) || !($db instanceof mysqli)) {
+    die("Database connection not established");
 }
 
-// Vérification de l'ID du produit
-if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-    header("Location: products.php");
-    exit();
+// Vérifier si l'utilisateur est admin
+$is_admin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
+
+// Gestion des actions admin
+if ($is_admin && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Suppression de produit
+    if (isset($_POST['delete_product'])) {
+        $product_id = intval($_POST['product_id']);
+        $stmt = $db->prepare("DELETE FROM products WHERE id = ?");
+        $stmt->bind_param("i", $product_id);
+        $stmt->execute();
+        $_SESSION['flash_message'] = "Produit supprimé avec succès";
+        header("Location: product.php");
+        exit();
+    }
+    
+    // Ajout/Modification de produit
+    if (isset($_POST['save_product'])) {
+        $product_id = intval($_POST['product_id'] ?? 0);
+        $name = $db->real_escape_string($_POST['name']);
+        $description = $db->real_escape_string($_POST['description']);
+        $price = floatval($_POST['price']);
+        $category_id = intval($_POST['category_id']);
+        
+        if ($product_id > 0) {
+            // Mise à jour
+            $stmt = $db->prepare("UPDATE products SET name=?, description=?, price=?, category_id=? WHERE id=?");
+            $stmt->bind_param("ssdii", $name, $description, $price, $category_id, $product_id);
+            $message = "Produit mis à jour avec succès";
+        } else {
+            // Insertion
+            $stmt = $db->prepare("INSERT INTO products (name, description, price, category_id) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("ssdi", $name, $description, $price, $category_id);
+            $message = "Produit ajouté avec succès";
+        }
+        
+        $stmt->execute();
+        $_SESSION['flash_message'] = $message;
+        header("Location: product.php");
+        exit();
+    }
 }
 
-$product_id = intval($_GET['id']);
-
-// Récupération des détails du produit
-$query = "SELECT * FROM products WHERE id = ?";
-$stmt = $db->prepare($query);
-
-if (!$stmt) {
-    error_log("Erreur de préparation: " . $db->error);
-    header("Location: products.php");
-    exit();
-}
-
-$stmt->bind_param("i", $product_id);
-$stmt->execute();
-$result = $stmt->get_result();
-$product = $result->fetch_assoc();
-
-if (!$product) {
-    header("Location: products.php");
-    exit();
-}
-
-// Titre de la page
-$page_title = htmlspecialchars($product['name']) . " - Comfort Chairs";
-
-// Gestion de l'ajout au panier
+// Gestion de l'ajout au panier (pour tous les utilisateurs)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
     if (!isset($_SESSION['cart'])) {
         $_SESSION['cart'] = [];
     }
 
+    $product_id = intval($_POST['product_id']);
     $quantity = max(1, intval($_POST['quantity'] ?? 1));
-    
-    // Régénération de l'ID de session pour la sécurité
-    session_regenerate_id(true);
     
     $_SESSION['cart'][$product_id] = ($_SESSION['cart'][$product_id] ?? 0) + $quantity;
     $_SESSION['flash_message'] = "Produit ajouté au panier !";
     
-    header("Location: cart.php");
+    header("Location: product.php?id=".$product_id);
     exit();
 }
 
-// Fin de la bufferisation
+// Récupérer toutes les catégories avec leurs produits
+$categories = [];
+$categories_query = "SELECT c.id, c.name, c.image_url FROM categories c";
+$categories_result = $db->query($categories_query);
+
+if ($categories_result->num_rows > 0) {
+    while ($category = $categories_result->fetch_assoc()) {
+        $products_query = "SELECT p.* FROM products p WHERE p.category_id = ?";
+        $stmt = $db->prepare($products_query);
+        $stmt->bind_param("i", $category['id']);
+        $stmt->execute();
+        $products_result = $stmt->get_result();
+        
+        $category['products'] = [];
+        while ($product = $products_result->fetch_assoc()) {
+            $category['products'][] = $product;
+        }
+        
+        $categories[] = $category;
+        $stmt->close();
+    }
+}
+
+// Si un ID produit est spécifié, afficher ce produit en détail
+$detailed_product = null;
+$editing_product = null;
+if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+    $product_id = intval($_GET['id']);
+    $product_query = "SELECT p.*, c.name as category_name FROM products p 
+                     JOIN categories c ON p.category_id = c.id 
+                     WHERE p.id = ?";
+    $stmt = $db->prepare($product_query);
+    $stmt->bind_param("i", $product_id);
+    $stmt->execute();
+    $detailed_product = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    // Mode édition pour admin
+    if ($is_admin && isset($_GET['edit'])) {
+        $editing_product = $detailed_product;
+    }
+}
+
+// Récupérer toutes les catégories pour le formulaire admin
+$all_categories = [];
+$cats_result = $db->query("SELECT id, name FROM categories");
+while ($cat = $cats_result->fetch_assoc()) {
+    $all_categories[] = $cat;
+}
+
+$page_title = $detailed_product ? htmlspecialchars($detailed_product['name']) : "Nos Produits - Comfort Chairs";
 ob_end_flush();
 ?>
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
     <title><?php echo $page_title; ?></title>
-    <link rel="stylesheet" href="/chairhub/css/style.css">
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .category-section {
+            margin: 40px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .product-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 8px;
+            transition: transform 0.3s;
+            position: relative;
+        }
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .product-card img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+        }
+        .add-to-cart-form {
+            margin-top: 15px;
+        }
+        .admin-actions {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 5px;
+        }
+        .admin-btn {
+            background: #333;
+            color: white;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .product-form {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group input, 
+        .form-group textarea, 
+        .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .form-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
     <header>
@@ -93,337 +226,239 @@ ob_end_flush();
             <nav>
                 <ul>
                     <li><a href="index.php">Home</a></li>
-                    <li><a href="products.php">Our Chairs</a></li>
-                    <li><a href="about.php">About Us</a></li>
+                    <li><a href="products.php" class="active">Our Chairs</a></li>
+                    <li><a href="about.php">About us</a></li>
                     <li><a href="contact.php">Contact</a></li>
-                    <li><a href="cart.php"><i class="fas fa-shopping-cart"></i> Cart 
-                        <?php 
-                        if (isset($_SESSION['cart']) && count($_SESSION['cart']) > 0) {
-                            echo '<span class="cart-count">'.count($_SESSION['cart']).'</span>';
-                        }
-                        ?>
-                    </a></li>
                     <li>
-                        <?php if (isset($_SESSION['user'])): ?>
-                            <a href="account.php"><i class="fas fa-user"></i> My Account</a>
+                        <a href="cart.php"><i class="fas fa-shopping-cart"></i> cart
+                        <?php if(isset($_SESSION['cart']) && count($_SESSION['cart']) > 0): ?>
+                            <span class="cart-count"><?= array_sum($_SESSION['cart']) ?></span>
+                        <?php endif; ?>
+                        </a>
+                    </li>
+                    <li>
+                        <?php if(isset($_SESSION['user_id'])): ?>
+                            <?php if($is_admin): ?>
+                                <a href="dashboard.php"><i class="fas fa-tachometer-alt"></i> Admin</a>
+                            <?php endif; ?>
                             <a href="logout.php"><i class="fas fa-sign-out-alt"></i></a>
                         <?php else: ?>
-                            <a href="login.php"><i class="fas fa-sign-in-alt"></i> Login</a>
+                            <a href="login.php"><i class="fas fa-sign-in-alt"></i> Connexion</a>
                         <?php endif; ?>
                     </li>
                 </ul>
-                <div class="search-bar">
-                    <form action="search.php" method="GET">
-                        <input type="text" name="query" placeholder="Search chairs...">
-                        <button type="submit"><i class="fas fa-search"></i></button>
-                    </form>
-                </div>
             </nav>
         </div>
     </header>
+    <main>
+    <div class="container">
+        <!-- Message flash -->
+        <?php if (isset($_SESSION['flash_message'])): ?>
+            <div class="flash-message">
+                <?= htmlspecialchars($_SESSION['flash_message']) ?>
+                <?php unset($_SESSION['flash_message']); ?>
+            </div>
+        <?php endif; ?>
 
-    <main class="product-page">
-        <div class="container">
-            <div class="product-details">
-                <div class="product-images">
-                    <div class="main-image">
-                        <img src="<?php echo $product['image_url']; ?>" alt="<?php echo $product['name']; ?>">
+        <!-- Mode édition -->
+        <?php if ($editing_product): ?>
+            <section class="product-form">
+                <h2><?= $editing_product['id'] ? 'Modifier le produit' : 'Ajouter un nouveau produit' ?></h2>
+                <form method="post" enctype="multipart/form-data">
+                    <input type="hidden" name="product_id" value="<?= $editing_product['id'] ?? 0 ?>">
+                    
+                    <div class="form-group">
+                        <label for="name">Nom du produit*</label>
+                        <input type="text" id="name" name="name" 
+                               value="<?= htmlspecialchars($editing_product['name'] ?? '') ?>" 
+                               required minlength="3" maxlength="100">
                     </div>
-                    <!-- You could add more images here in a gallery -->
+                    
+                    <div class="form-group">
+                        <label for="description">Description*</label>
+                        <textarea id="description" name="description" rows="5" 
+                                  required minlength="10" maxlength="1000"><?= 
+                                  htmlspecialchars($editing_product['description'] ?? '') ?></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="price">Prix (€)*</label>
+                        <input type="number" id="price" name="price" step="0.01" 
+                               value="<?= number_format($editing_product['price'] ?? 0, 2) ?>" 
+                               required min="0.01" max="9999.99">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="category_id">Catégorie*</label>
+                        <select id="category_id" name="category_id" required>
+                            <option value="">-- Sélectionnez une catégorie --</option>
+                            <?php foreach ($all_categories as $cat): ?>
+                                <option value="<?= $cat['id'] ?>" 
+                                    <?= ($cat['id'] == ($editing_product['category_id'] ?? 0)) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($cat['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="image">Image du produit</label>
+                        <input type="file" id="image" name="image" accept="image/*">
+                        <?php if (!empty($editing_product['image_url'])): ?>
+                            <div class="current-image">
+                                <p>Image actuelle :</p>
+                                <img src="images/<?= $editing_product['image_url'] ?>" 
+                                     alt="<?= htmlspecialchars($editing_product['name']) ?>" 
+                                     style="max-width: 200px;">
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <a href="<?= !empty($editing_product['id']) ? 'product.php?id='.$editing_product['id'] : 'product.php' ?>" 
+                           class="btn btn-secondary">
+                            Annuler
+                        </a>
+                        <button type="submit" name="save_product" class="btn btn-primary">
+                            <?= $editing_product['id'] ? 'Mettre à jour' : 'Créer le produit' ?>
+                        </button>
+                    </div>
+                </form>
+            </section>
+        
+        <!-- Affichage détaillé d'un produit -->
+        <?php elseif ($detailed_product): ?>
+            <section class="product-detail">
+                <?php if ($is_admin): ?>
+                    <div class="admin-actions">
+                        <a href="edit_product.php?id=<?= $detailed_product['id'] ?>" 
+                           class="admin-btn" title="Modifier">
+                            <i class="fas fa-edit"></i>
+                        </a>
+                        <a href="delete_product.php?id=<?= $detailed_product['id'] ?>" 
+                           class="admin-btn" title="Supprimer" 
+                           onclick="return confirm('Êtes-vous sûr de vouloir supprimer ce produit définitivement ?')">
+                            <i class="fas fa-trash"></i>
+                        </a>
+                    </div>
+                <?php endif; ?>
+                
+                <div class="product-images">
+                    <img src="images/<?= $detailed_product['image_url'] ?>" 
+                         alt="<?= htmlspecialchars($detailed_product['name']) ?>"
+                         class="product-main-image">
                 </div>
                 
                 <div class="product-info">
-                    <h1><?php echo $product['name']; ?></h1>
-                    
-                    <div class="price">
-                        $<?php echo number_format($product['price'], 2); ?>
-                        <?php if ($product['original_price'] > $product['price']): ?>
-                            <span class="original-price">$<?php echo number_format($product['original_price'], 2); ?></span>
-                            <span class="discount"><?php echo round(100 - ($product['price'] / $product['original_price'] * 100)); ?>% OFF</span>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <div class="rating">
-                        <?php
-                        $full_stars = floor($product['rating']);
-                        $half_star = ($product['rating'] - $full_stars) >= 0.5;
-                        
-                        for ($i = 0; $i < $full_stars; $i++) {
-                            echo '<i class="fas fa-star"></i>';
-                        }
-                        
-                        if ($half_star) {
-                            echo '<i class="fas fa-star-half-alt"></i>';
-                            $full_stars++; // Increment for the half star
-                        }
-                        
-                        for ($i = $full_stars; $i < 5; $i++) {
-                            echo '<i class="far fa-star"></i>';
-                        }
-                        ?>
-                        <span>(<?php echo $product['review_count']; ?> reviews)</span>
+                    <h1><?= htmlspecialchars($detailed_product['name']) ?></h1>
+                    <div class="product-meta">
+                        <span class="category"><?= htmlspecialchars($detailed_product['category_name']) ?></span>
+                        <span class="price"><?= number_format($detailed_product['price'], 2) ?> €</span>
                     </div>
                     
                     <div class="description">
-                        <p><?php echo $product['description']; ?></p>
-                    </div>
-                    
-                    <div class="product-meta">
-                        <div class="availability">
-                            <span>Availability:</span>
-                            <?php if ($product['stock'] > 0): ?>
-                                <span class="in-stock">In Stock (<?php echo $product['stock']; ?> available)</span>
-                            <?php else: ?>
-                                <span class="out-of-stock">Out of Stock</span>
-                            <?php endif; ?>
-                        </div>
-                        
-                        <div class="sku">
-                            <span>SKU:</span> <?php echo $product['sku']; ?>
-                        </div>
-                        
-                        <div class="category">
-                            <span>Category:</span> 
-                            <a href="products.php?category=<?php echo $product['category_id']; ?>">
-                                <?php 
-                                // Fetch category name
-                                $cat_query = "SELECT name FROM categories WHERE id = ?";
-                                $cat_stmt = $db->prepare($cat_query);
-                                $cat_stmt->bind_param("i", $product['category_id']);
-                                $cat_stmt->execute();
-                                $cat_result = $cat_stmt->get_result();
-                                $category = $cat_result->fetch_assoc();
-                                echo $category['name'];
-                                ?>
-                            </a>
-                        </div>
+                        <?= nl2br(htmlspecialchars($detailed_product['description'])) ?>
                     </div>
                     
                     <form method="post" class="add-to-cart-form">
-                        <div class="quantity">
-                            <label for="quantity">Quantity:</label>
-                            <input type="number" id="quantity" name="quantity" value="1" min="1" 
-                                   max="<?php echo $product['stock']; ?>">
+                        <input type="hidden" name="product_id" value="<?= $detailed_product['id'] ?>">
+                        <div class="form-group">
+                            <label for="quantity">Quantité:</label>
+                            <input type="number" id="quantity" name="quantity" 
+                                   value="1" min="1" max="10" class="quantity-input">
                         </div>
-                        
-                        <button type="submit" name="add_to_cart" class="btn" 
-                                <?php echo ($product['stock'] <= 0) ? 'disabled' : ''; ?>>
-                            <i class="fas fa-shopping-cart"></i> Add to Cart
+                        <button type="submit" name="add_to_cart" class="btn btn-add-to-cart">
+                            <i class="fas fa-shopping-cart"></i> Ajouter au panier
                         </button>
-                        
-                        <?php if ($product['stock'] <= 0): ?>
-                            <div class="out-of-stock-notice">
-                                This item is currently out of stock
-                            </div>
-                        <?php endif; ?>
                     </form>
                 </div>
-            </div>
-            
-            <div class="product-tabs">
-                <div class="tabs">
-                    <button class="tab-btn active" data-tab="description">Description</button>
-                    <button class="tab-btn" data-tab="specifications">Specifications</button>
-                    <button class="tab-btn" data-tab="reviews">Reviews</button>
-                </div>
-                
-                <div class="tab-content active" id="description">
-                    <h3>Product Description</h3>
-                    <p><?php echo $product['description']; ?></p>
-                    <?php if (!empty($product['features'])): ?>
-                        <h4>Key Features:</h4>
-                        <ul>
-                            <?php 
-                            $features = explode("\n", $product['features']);
-                            foreach ($features as $feature) {
-                                if (!empty(trim($feature))) {
-                                    echo '<li>' . trim($feature) . '</li>';
-                                }
-                            }
-                            ?>
-                        </ul>
-                    <?php endif; ?>
-                </div>
-                
-                <div class="tab-content" id="specifications">
-                    <h3>Technical Specifications</h3>
-                    <table>
-                        <tr>
-                            <th>Material</th>
-                            <td><?php echo $product['material']; ?></td>
-                        </tr>
-                        <tr>
-                            <th>Dimensions</th>
-                            <td><?php echo $product['dimensions']; ?></td>
-                        </tr>
-                        <tr>
-                            <th>Weight</th>
-                            <td><?php echo $product['weight']; ?> lbs</td>
-                        </tr>
-                        <tr>
-                            <th>Color</th>
-                            <td><?php echo $product['color']; ?></td>
-                        </tr>
-                        <tr>
-                            <th>Warranty</th>
-                            <td><?php echo $product['warranty']; ?> year warranty</td>
-                        </tr>
-                    </table>
-                </div>
-                
-                <div class="tab-content" id="reviews">
-                    <h3>Customer Reviews</h3>
-                    <?php
-                    // Fetch reviews for this product
-                    $review_query = "SELECT * FROM reviews WHERE product_id = ? ORDER BY date DESC";
-                    $review_stmt = $db->prepare($review_query);
-                    $review_stmt->bind_param("i", $product_id);
-                    $review_stmt->execute();
-                    $reviews = $review_stmt->get_result();
-                    
-                    if ($reviews->num_rows > 0) {
-                        while ($review = $reviews->fetch_assoc()) {
-                            echo '<div class="review">';
-                            echo '<div class="review-header">';
-                            echo '<span class="review-author">' . htmlspecialchars($review['author']) . '</span>';
-                            echo '<span class="review-date">' . date('F j, Y', strtotime($review['date'])) . '</span>';
-                            echo '<div class="review-rating">';
-                            for ($i = 1; $i <= 5; $i++) {
-                                if ($i <= $review['rating']) {
-                                    echo '<i class="fas fa-star"></i>';
-                                } else {
-                                    echo '<i class="far fa-star"></i>';
-                                }
-                            }
-                            echo '</div>';
-                            echo '</div>';
-                            echo '<div class="review-content">';
-                            echo '<h4>' . htmlspecialchars($review['title']) . '</h4>';
-                            echo '<p>' . nl2br(htmlspecialchars($review['content'])) . '</p>';
-                            echo '</div>';
-                            echo '</div>';
-                        }
-                    } else {
-                        echo '<p>No reviews yet. Be the first to review this product!</p>';
-                    }
-                    ?>
-                    
-                    <?php if (isset($_SESSION['user'])): ?>
-                        <div class="add-review">
-                            <h4>Add Your Review</h4>
-                            <form method="post" action="submit_review.php">
-                                <input type="hidden" name="product_id" value="<?php echo $product_id; ?>">
-                                <div class="form-group">
-                                    <label for="review_title">Review Title</label>
-                                    <input type="text" id="review_title" name="review_title" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Rating</label>
-                                    <div class="rating-input">
-                                        <input type="radio" id="star5" name="rating" value="5"><label for="star5"></label>
-                                        <input type="radio" id="star4" name="rating" value="4"><label for="star4"></label>
-                                        <input type="radio" id="star3" name="rating" value="3"><label for="star3"></label>
-                                        <input type="radio" id="star2" name="rating" value="2"><label for="star2"></label>
-                                        <input type="radio" id="star1" name="rating" value="1"><label for="star1"></label>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="review_content">Your Review</label>
-                                    <textarea id="review_content" name="review_content" rows="5" required></textarea>
-                                </div>
-                                <button type="submit" class="btn">Submit Review</button>
-                            </form>
-                        </div>
-                    <?php else: ?>
-                        <p><a href="login.php">Login</a> to leave a review.</p>
-                    <?php endif; ?>
-                </div>
-            </div>
-            
-            <!-- Related Products -->
-            <section class="related-products">
-                <h2>You May Also Like</h2>
-                <div class="products-grid">
-                    <?php
-                    // Fetch related products (same category)
-                    $related_query = "SELECT * FROM products WHERE category_id = ? AND id != ? LIMIT 4";
-                    $related_stmt = $db->prepare($related_query);
-                    $related_stmt->bind_param("ii", $product['category_id'], $product_id);
-                    $related_stmt->execute();
-                    $related_products = $related_stmt->get_result();
-                    
-                    if ($related_products->num_rows > 0) {
-                        while ($related = $related_products->fetch_assoc()) {
-                            echo '<div class="product-card">';
-                            echo '<a href="product.php?id=' . $related['id'] . '">';
-                            echo '<img src="' . $related['image_url'] . '" alt="' . $related['name'] . '">';
-                            echo '<h3>' . $related['name'] . '</h3>';
-                            echo '<p class="price">$' . number_format($related['price'], 2) . '</p>';
-                            echo '</a>';
-                            echo '</div>';
-                        }
-                    } else {
-                        echo '<p>No related products found.</p>';
-                    }
-                    ?>
-                </div>
             </section>
-        </div>
-    </main>
+        
+        <!-- Liste de tous les produits -->
+        <?php else: ?>
+            <div class="products-header">
+                <h1>Nos produits</h1>
+                
+                <?php if ($is_admin): ?>
+                    <div class="admin-product-actions">
+                        <a href="create_product.php" class="btn btn-admin">
+                            <i class="fas fa-plus"></i> Ajouter un produit
+                        </a>
+                    </div>
+                <?php endif; ?>
+            </div>
+            
+            <?php if (empty($categories)): ?>
+                <div class="alert alert-info">
+                    Aucun produit disponible pour le moment.
+                </div>
+            <?php else: ?>
+                <?php foreach ($categories as $category): ?>
+                    <section class="category-section">
+                        <h2 class="category-title"><?= htmlspecialchars($category['name']) ?></h2>
+                        
+                        <?php if (empty($category['products'])): ?>
+                            <p class="no-products">Aucun produit dans cette catégorie.</p>
+                        <?php else: ?>
+                            <div class="products-grid">
+                                <?php foreach ($category['products'] as $product): ?>
+                                    <div class="product-card">
+                                        <?php if ($is_admin): ?>
+                                            <div class="admin-actions">
+                                                <a href="edit_product.php?id=<?= $product['id'] ?>" 
+                                                   class="admin-btn" title="Modifier">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <a href="delete_product.php?id=<?= $product['id'] ?>" 
+                                                   class="admin-btn" title="Supprimer" 
+                                                   onclick="return confirm('Supprimer ce produit ?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </a>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <a href="product.php?id=<?= $product['id'] ?>" class="product-link">
+                                            <div class="product-image-container">
+                                                <img src="images/<?= $product['image_url'] ?>" 
+                                                     alt="<?= htmlspecialchars($product['name']) ?>"
+                                                     class="product-thumbnail">
+                                            </div>
+                                            <div class="product-info">
+                                                <h3><?= htmlspecialchars($product['name']) ?></h3>
+                                                <div class="price"><?= number_format($product['price'], 2) ?> €</div>
+                                            </div>
+                                        </a>
+                                        
+                                        <form method="post" class="add-to-cart-form">
+                                            <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
+                                            <button type="submit" name="add_to_cart" class="btn btn-sm btn-add-to-cart">
+                                                <i class="fas fa-cart-plus"></i> Ajouter
+                                            </button>
+                                        </form>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </section>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+</main>
 
     <footer>
-        <div class="container">
-            <div class="footer-section">
-                <h3>Quick Links</h3>
-                <ul>
-                    <li><a href="index.php">Home</a></li>
-                    <li><a href="products.php">Products</a></li>
-                    <li><a href="about.php">About Us</a></li>
-                    <li><a href="contact.php">Contact</a></li>
-                </ul>
-            </div>
-            <div class="footer-section">
-                <h3>Customer Service</h3>
-                <ul>
-                    <li><a href="shipping.php">Shipping Policy</a></li>
-                    <li><a href="returns.php">Returns & Refunds</a></li>
-                    <li><a href="faq.php">FAQ</a></li>
-                </ul>
-            </div>
-            <div class="footer-section">
-                <h3>Contact Us</h3>
-                <p>Email: info@comfortchairs.com</p>
-                <p>Phone: (123) 456-7890</p>
-            </div>
-            <div class="footer-section">
-                <h3>Follow Us</h3>
-                <div class="social-icons">
-                    <a href="#"><i class="fab fa-facebook"></i></a>
-                    <a href="#"><i class="fab fa-twitter"></i></a>
-                    <a href="#"><i class="fab fa-instagram"></i></a>
-                    <a href="#"><i class="fab fa-pinterest"></i></a>
-                </div>
-            </div>
-        </div>
-        <div class="copyright">
-            <p>&copy; <?php echo date("Y"); ?> Comfort Chairs. All Rights Reserved.</p>
-        </div>
+        <!-- Votre pied de page existant -->
     </footer>
 
-    <script src="js/script.js"></script>
-    <script src="js/script.js"></script>
-<script>
-    // Tab functionality
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            // Remove active class from all buttons and content
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            // Add active class to clicked button and corresponding content
-            btn.classList.add('active');
-            const tabId = btn.getAttribute('data-tab');
-            document.getElementById(tabId).classList.add('active');
+    <script>
+        // Confirmation avant suppression
+        document.querySelectorAll('[name="delete_product"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                if (!confirm('Supprimer ce produit définitivement ?')) {
+                    e.preventDefault();
+                }
+            });
         });
-    });
-</script>   
+    </script>
+</body>
+</html>
