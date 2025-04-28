@@ -45,22 +45,23 @@ $page_title = "Comfort Chairs - Home";
                         </a>
                     </li>
                     <li>
-                        <?php if(isset($_SESSION['user_id'])): ?>
+                    <?php if(isset($_SESSION['user_id'])): ?>
                             <!-- Debug: Affiche les infos de session en commentaire HTML -->
                             <!-- Session: <?= htmlspecialchars(json_encode($_SESSION)) ?> -->
-                            
                             
                             <?php if($_SESSION['role'] === 'admin'): ?>
                                 <a href="dashboard.php" class="admin-link">
                                     <i class="fas fa-tachometer-alt"></i> Dashboard
                                 </a>
                             <?php endif; ?>
-                            
+
                             <a href="logout.php" class="logout-link" onclick="return confirm('Do you really want to log out?')">
-    <i class="fas fa-sign-out-alt"></i></a>
+                                <i class="fas fa-sign-out-alt"></i> Logout
+                            </a>
                         <?php else: ?>
-                            <a href="login.php"><i class="fas fa-sign-in-alt"></i> Connexion</a>
+                            <a href="login.php"><i class="fas fa-sign-in-alt"></i> Login</a>
                         <?php endif; ?>
+                        
                     </li>
                 </ul>
                 

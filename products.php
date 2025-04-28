@@ -16,22 +16,21 @@ if (!isset($db) || !($db instanceof mysqli)) {
 }
 
 // Vérifier si l'utilisateur est admin
-$is_admin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
-
-// Gestion des actions admin
-if ($is_admin && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Suppression de produit
-    if (isset($_POST['delete_product'])) {
-        $product_id = intval($_POST['product_id']);
-        $stmt = $db->prepare("DELETE FROM products WHERE id = ?");
-        $stmt->bind_param("i", $product_id);
-        $stmt->execute();
-        $_SESSION['flash_message'] = "Produit supprimé avec succès";
-        header("Location: product.php");
-        exit();
-    }
+if (isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    // Récupérez les informations de l'utilisateur depuis la base de données
+    $result = mysqli_query($conn, "SELECT * FROM users WHERE id = '$user_id'");
+    $user = mysqli_fetch_assoc($result);
     
-    // Ajout/Modification de produit
+    // Définir $is_admin en fonction du rôle de l'utilisateur
+    if ($user['role'] === 'admin') {
+        $is_admin = true;
+    } else {
+        $is_admin = false;
+    }
+} else {
+    $is_admin = false;
+}    // Ajout/Modification de produit
     if (isset($_POST['save_product'])) {
         $product_id = intval($_POST['product_id'] ?? 0);
         $name = $db->real_escape_string($_POST['name']);
@@ -56,7 +55,7 @@ if ($is_admin && $_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: product.php");
         exit();
     }
-}
+
 
 // Gestion de l'ajout au panier (pour tous les utilisateurs)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
@@ -376,73 +375,77 @@ ob_end_flush();
         
         <!-- Liste de tous les produits -->
         <?php else: ?>
-            <div class="products-header">
-                <h1>Nos produits</h1>
-                
-                <?php if ($is_admin): ?>
-                    <div class="admin-product-actions">
-                        <a href="create_product.php" class="btn btn-admin">
-                            <i class="fas fa-plus"></i> Ajouter un produit
-                        </a>
+
+    <div class="products-header">
+        <h1>Nos produits</h1>
+
+        <?php if ($is_admin): ?>
+            <div class="admin-product-actions">
+                <!-- Bouton pour ajouter un produit -->
+                <a href="create_product.php" class="btn btn-admin">
+                    <i class="fas fa-plus"></i> Ajouter un produit
+                </a>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <?php if (empty($categories)): ?>
+        <div class="alert alert-info">
+            Aucun produit disponible pour le moment.
+        </div>
+    <?php else: ?>
+        <?php foreach ($categories as $category): ?>
+            <section class="category-section">
+                <h2 class="category-title"><?= htmlspecialchars($category['name']) ?></h2>
+
+                <?php if (empty($category['products'])): ?>
+                    <p class="no-products">Aucun produit dans cette catégorie.</p>
+                <?php else: ?>
+                    <div class="products-grid">
+                        <?php foreach ($category['products'] as $product): ?>
+                            <div class="product-card">
+                                <?php if ($is_admin): ?>
+                                    <!-- Actions de gestion (modifier, supprimer) pour l'administrateur -->
+                                    <div class="admin-actions">
+                                        <a href="edit_product.php?id=<?= $product['id'] ?>" 
+                                           class="admin-btn" title="Modifier">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a href="delete_product.php?id=<?= $product['id'] ?>" 
+                                           class="admin-btn" title="Supprimer" 
+                                           onclick="return confirm('Êtes-vous sûr de vouloir supprimer ce produit définitivement ?')">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </div>
+                                <?php endif; ?>
+
+                                <a href="product.php?id=<?= $product['id'] ?>" class="product-link">
+                                    <div class="product-image-container">
+                                        <img src="images/<?= $product['image_url'] ?>" 
+                                             alt="<?= htmlspecialchars($product['name']) ?>"
+                                             class="product-thumbnail">
+                                    </div>
+                                    <div class="product-info">
+                                        <h3><?= htmlspecialchars($product['name']) ?></h3>
+                                        <div class="price"><?= number_format($product['price'], 2) ?> €</div>
+                                    </div>
+                                </a>
+
+                                <form method="post" class="add-to-cart-form">
+                                    <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
+                                    <button type="submit" name="add_to_cart" class="btn btn-sm btn-add-to-cart">
+                                        <i class="fas fa-cart-plus"></i> Ajouter
+                                    </button>
+                                </form>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
-            </div>
-            
-            <?php if (empty($categories)): ?>
-                <div class="alert alert-info">
-                    Aucun produit disponible pour le moment.
-                </div>
-            <?php else: ?>
-                <?php foreach ($categories as $category): ?>
-                    <section class="category-section">
-                        <h2 class="category-title"><?= htmlspecialchars($category['name']) ?></h2>
-                        
-                        <?php if (empty($category['products'])): ?>
-                            <p class="no-products">Aucun produit dans cette catégorie.</p>
-                        <?php else: ?>
-                            <div class="products-grid">
-                                <?php foreach ($category['products'] as $product): ?>
-                                    <div class="product-card">
-                                        <?php if ($is_admin): ?>
-                                            <div class="admin-actions">
-                                                <a href="edit_product.php?id=<?= $product['id'] ?>" 
-                                                   class="admin-btn" title="Modifier">
-                                                    <i class="fas fa-edit"></i>
-                                                </a>
-                                                <a href="delete_product.php?id=<?= $product['id'] ?>" 
-                                                   class="admin-btn" title="Supprimer" 
-                                                   onclick="return confirm('Supprimer ce produit ?')">
-                                                    <i class="fas fa-trash"></i>
-                                                </a>
-                                            </div>
-                                        <?php endif; ?>
-                                        
-                                        <a href="product.php?id=<?= $product['id'] ?>" class="product-link">
-                                            <div class="product-image-container">
-                                                <img src="images/<?= $product['image_url'] ?>" 
-                                                     alt="<?= htmlspecialchars($product['name']) ?>"
-                                                     class="product-thumbnail">
-                                            </div>
-                                            <div class="product-info">
-                                                <h3><?= htmlspecialchars($product['name']) ?></h3>
-                                                <div class="price"><?= number_format($product['price'], 2) ?> €</div>
-                                            </div>
-                                        </a>
-                                        
-                                        <form method="post" class="add-to-cart-form">
-                                            <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                                            <button type="submit" name="add_to_cart" class="btn btn-sm btn-add-to-cart">
-                                                <i class="fas fa-cart-plus"></i> Ajouter
-                                            </button>
-                                        </form>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </section>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        <?php endif; ?>
+            </section>
+        <?php endforeach; ?>
+    <?php endif; ?>
+<?php endif; ?>
+
     </div>
 </main>
 
