@@ -17,7 +17,7 @@ if (!isset($db) || !($db instanceof mysqli)) {
 $total_users = 0;
 $total_products = 0;
 $recent_users = [];
-$low_stock = []; // Initialisation cruciale
+$orders = []; // Initialisation cruciale
 $dashboard_error = null;
 
 try {
@@ -34,9 +34,26 @@ try {
     $recent_users = $result->fetch_all(MYSQLI_ASSOC) ?: [];
     
     // Produits avec faible stock
-    $result = $db->query("SELECT id, name, stock_quantity FROM products WHERE stock_quantity < 5 ORDER BY stock_quantity ASC");
-    $low_stock = $result->fetch_all(MYSQLI_ASSOC) ?: [];
-
+    if ($is_admin) {
+    // Admin - voir les 5 dernières commandes de tous les utilisateurs
+    $result = $db->query("
+        SELECT o.id, o.order_date, o.total_amount, o.status, u.name as customer_name 
+        FROM orders o
+        JOIN users u ON o.user_id = u.iduser
+        ORDER BY o.order_date DESC 
+        LIMIT 5
+    ");
+} else {
+    // Utilisateur normal - voir ses 5 dernières commandes
+    $result = $db->query("
+        SELECT id, order_date, total_amount, status 
+        FROM orders 
+        WHERE user_id = ".intval($_SESSION['user_id'])." 
+        ORDER BY order_date DESC 
+        LIMIT 5
+    ");
+}
+$recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
 } catch (Exception $e) {
     error_log("Dashboard error: " . $e->getMessage());
     $dashboard_error = "Erreur lors du chargement des données";
@@ -191,11 +208,10 @@ try {
             <ul>
                 <li><a href="dashboard.php" class="active"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
                 <li><a href="products.php"><i class="fas fa-chair"></i> Products</a></li>
-                <li><a href="categories.php"><i class="fas fa-list"></i> Categories</a></li>
+                <li><a href="categorie.php"><i class="fas fa-list"></i> Categories</a></li>
                 <li><a href="users.php"><i class="fas fa-users"></i> Users</a></li>
                 <li><a href="orders.php"><i class="fas fa-shopping-cart"></i> Orders</a></li>
-                <li><a href="settings.php"><i class="fas fa-cog"></i> Settings</a></li>
-            </ul>
+                           </ul>
         </div>
         
         <!-- Main Content -->
@@ -227,9 +243,9 @@ try {
                 </div>
                 
                 <div class="stat-card">
-                    <h3>Low Stock Items</h3>
-                    <div class="value"><?= count($low_stock) ?></div>
-                    <a href="products.php?filter=low_stock">View items</a>
+                    <h3>History</h3>
+                    <div class="value"><?= count($orders) ?></div>
+                    <a href="orders_history.php">View orders</a>
                 </div>
             </div>
             

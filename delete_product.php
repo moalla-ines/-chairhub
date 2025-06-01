@@ -1,41 +1,29 @@
 <?php
-ob_start();
-session_start([
-    'cookie_lifetime' => 86400,
-    'cookie_secure' => isset($_SERVER['HTTPS']),
-    'cookie_httponly' => true,
-    'cookie_samesite' => 'Lax'
-]);
-
+session_start();
 require_once 'config.php';
 
-// Vérifier si admin
-if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
-    header("Location: login.php");
+if (!isset($_SESSION['iduser'])) {
+    header('Location: login.php');
     exit();
 }
 
-if (isset($_GET['id'])) {
-    $product_id = intval($_GET['id']);
-    
-    // Vérifier si le produit existe
-    $stmt = $db->prepare("SELECT id FROM products WHERE id = ?");
-    $stmt->bind_param("i", $product_id);
-    $stmt->execute();
-    $exists = $stmt->get_result()->num_rows > 0;
-    $stmt->close();
-    
-    if ($exists) {
-        // Supprimer le produit
-        $stmt = $db->prepare("DELETE FROM products WHERE id = ?");
-        $stmt->bind_param("i", $product_id);
-        $stmt->execute();
-        $_SESSION['flash_message'] = "Produit supprimé avec succès";
-    } else {
-        $_SESSION['flash_message'] = "Produit introuvable";
-    }
+$user_id = intval($_SESSION['iduser']);
+$result = mysqli_query($db, "SELECT role FROM users WHERE id = $user_id");
+$user = mysqli_fetch_assoc($result);
+
+if ($user['role'] !== 'admin') {
+    die("Accès non autorisé.");
 }
 
-header("Location: product.php");
-exit();
+if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+    $product_id = intval($_GET['id']);
+    $stmt = $db->prepare("DELETE FROM products WHERE id = ?");
+    $stmt->bind_param("i", $product_id);
+    $stmt->execute();
+    $stmt->close();
+
+    $_SESSION['flash_message'] = "Produit supprimé avec succès.";
+    header("Location: product.php");
+    exit();
+}
 ?>

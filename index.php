@@ -7,6 +7,8 @@ session_start([
 ]);
 require_once 'config.php';
 
+
+
 if (!isset($db) || !($db instanceof mysqli)) {
     die("Database connection not established");
 }
