@@ -1,37 +1,21 @@
 <?php
-// Démarrage de session sécurisé
-session_start([
-    'cookie_lifetime' => 86400,
-    'cookie_secure' => isset($_SERVER['HTTPS']),
-    'cookie_httponly' => true,
-    'cookie_samesite' => 'Strict'
-]);
+// Démarrage de session basique
+session_start();
 
 require_once 'config.php';
-
-// Vérification de la connexion (adaptée pour MySQLi)
-if (!isset($db) || !($db instanceof mysqli)) {
-    die("Erreur de connexion à la base de données. Vérifiez config.php");
-}
 
 $error = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = filter_input(INPUT_POST, 'email', FILTER_SANITIZE_EMAIL);
-    $password = $_POST['password'] ?? '';
+    $email = $_POST['email'];
+    $password = $_POST['password'];
     
     try {
-        // Version MySQLi (correspondant à config.php)
-        $stmt = $db->prepare("SELECT iduser, name, email, password, role FROM users WHERE email = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $user = $result->fetch_assoc();
+        $stmt = $pdo->prepare("SELECT iduser, name, email, password, role FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($user && password_verify($password, $user['password'])) {
-            // Régénération de l'ID de session
-            session_regenerate_id(true);
-            
             $_SESSION = [
                 'user_id' => $user['iduser'],
                 'username' => $user['name'],
@@ -39,19 +23,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'role' => $user['role'],
                 'logged_in' => true
             ];
-            // Après $_SESSION = [...];
-echo '<script>
-console.log("Session utilisateur :", '.json_encode($_SESSION).');
-</script>';
-// Puis votre header('Location...');
+            
             header('Location: index.php');
             exit();
         } else {
             $error = "Email ou mot de passe incorrect";
-            sleep(1); // Protection contre les attaques brute-force
         }
-    } catch (Exception $e) {
-        error_log("Login error: " . $e->getMessage());
+    } catch (PDOException $e) {
         $error = "Une erreur est survenue. Veuillez réessayer.";
     }
 }

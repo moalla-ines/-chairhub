@@ -9,7 +9,7 @@ if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
 
 require_once 'config.php';
 
-if (!isset($db) || !($db instanceof mysqli)) {
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Database connection error");
 }
 
@@ -21,11 +21,10 @@ if (!isset($_GET['id'])) {
 $id = $_GET['id'];
 
 // Récupération de l'utilisateur existant
-$stmt = $db->prepare("SELECT * FROM users WHERE iduser = ?");
-$stmt->bind_param("i", $id);
+$stmt = $pdo->prepare("SELECT * FROM users WHERE iduser = ?");
+$stmt ->bindParam(1, $id);
 $stmt->execute();
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
+$user = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$user) {
     die("Utilisateur non trouvé");
@@ -51,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: liste_users.php?success=1");
         exit();
     } else {
-        $error = "Erreur lors de la mise à jour : " . $db->error;
+        $error = "Erreur lors de la mise à jour : " .$stmt->error;
     }
 }
 ?>

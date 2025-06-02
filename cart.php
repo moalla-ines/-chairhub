@@ -1,7 +1,13 @@
 <?php
 // Start session and output buffering at the VERY TOP (no whitespace before)
 ob_start();
-session_start();
+// Démarrage de session sécurisé
+session_start([
+    'cookie_lifetime' => 86400,
+    'cookie_secure' => isset($_SERVER['HTTPS']),
+    'cookie_httponly' => true,
+    'cookie_samesite' => 'Strict'
+]);
 
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -9,7 +15,7 @@ ini_set('display_errors', 1);
 require_once 'config.php';
 
 // Check database connection
-if (!isset($db) || !($db instanceof mysqli)) {
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     header("Location: maintenance.php");
     exit();
 }
@@ -54,15 +60,13 @@ if (!empty($_SESSION['cart'])) {
     // Get product details for items in cart
     $product_ids = array_keys($_SESSION['cart']);
     $placeholders = implode(',', array_fill(0, count($product_ids), '?'));
-    $stmt = $db->prepare("SELECT id, name, price, image_url FROM products WHERE id IN ($placeholders)");
     
-    // Bind parameters dynamically
-    $types = str_repeat('i', count($product_ids));
-    $stmt->bind_param($types, ...$product_ids);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    // Prepare and execute query with PDO
+    $sql = "SELECT id, name, price, image_url FROM products WHERE id IN ($placeholders)";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($product_ids);
     
-    while ($product = $result->fetch_assoc()) {
+    while ($product = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $quantity = $_SESSION['cart'][$product['id']];
         $subtotal = $product['price'] * $quantity;
         $cart_total += $subtotal;
@@ -76,6 +80,7 @@ if (!empty($_SESSION['cart'])) {
             'subtotal' => $subtotal
         ];
     }
+    $stmt->closeCursor();
 }
 
 // End output buffering
@@ -117,7 +122,7 @@ ob_end_flush();
             
             <?php if (isset($_SESSION['flash_message'])): ?>
                 <div class="flash-message">
-                    <?php echo $_SESSION['flash_message']; ?>
+                    <?php echo htmlspecialchars($_SESSION['flash_message']); ?>
                     <?php unset($_SESSION['flash_message']); ?>
                 </div>
             <?php endif; ?>
@@ -138,7 +143,8 @@ ob_end_flush();
                             <?php foreach ($cart_items as $item): ?>
                                 <tr>
                                     <td class="product-info">
-                                        <img src="images/<?php echo $item['image']; ?>" alt="<?php echo $item['name']; ?>" 
+                                        <img src="images/<?php echo htmlspecialchars($item['image']); ?>" 
+                                             alt="<?php echo htmlspecialchars($item['name']); ?>" 
                                              onerror="this.src='images/default.jpg'">
                                         <span><?php echo htmlspecialchars($item['name']); ?></span>
                                     </td>

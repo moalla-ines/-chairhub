@@ -2,16 +2,16 @@
 require_once 'config.php';
 
 // Vérification de la connexion
-if (!isset($db) || !($db instanceof mysqli)) {
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Erreur de connexion à la base de données");
 }
 
 // Récupération des utilisateurs
 $users = [];
 try {
-    $result = $db->query("SELECT * FROM users ORDER BY iduser DESC");
+    $result = $pdo->query("SELECT * FROM users ORDER BY iduser DESC");
     if ($result) {
-        $users = $result->fetch_all(MYSQLI_ASSOC);
+        $users = $result->fetchAll(PDO::FETCH_ASSOC);
     }
 } catch (Exception $e) {
     die("Erreur lors de la récupération : " . $e->getMessage());

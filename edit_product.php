@@ -23,25 +23,30 @@ $page_title = "Ajouter un produit";
 $categories = [];
 $errors = [];
 
+// Vérification de la connexion PDO
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    die("Erreur de connexion à la base de données");
+}
+
 // Récupération du produit à éditer
 if (isset($_GET['id'])) {
     $product_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     
     if ($product_id) {
-        $stmt = $db->prepare("SELECT * FROM products WHERE id = ?");
-        $stmt->bind_param("i", $product_id);
-        
-        if ($stmt->execute()) {
-            $product = $stmt->get_result()->fetch_assoc();
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+            $stmt->execute([$product_id]);
+            $product = $stmt->fetch(PDO::FETCH_ASSOC);
+            
             if ($product) {
                 $page_title = "Modifier " . htmlspecialchars($product['name']);
             } else {
                 $errors[] = "Produit introuvable";
             }
-        } else {
+        } catch (PDOException $e) {
             $errors[] = "Erreur lors de la récupération du produit";
+            error_log("Database error: " . $e->getMessage());
         }
-        $stmt->close();
     } else {
         $errors[] = "ID produit invalide";
     }
@@ -63,50 +68,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$category_id) $errors[] = "Catégorie invalide";
 
     if (empty($errors)) {
-        // Échappement pour sécurité
-        $name = $db->real_escape_string($name);
-        $description = $db->real_escape_string($description);
-        
         try {
             if ($product_id > 0) {
                 // Mise à jour
-                $stmt = $db->prepare("UPDATE products SET name=?, description=?, price=?, category_id=? WHERE id=?");
-                $stmt->bind_param("ssdii", $name, $description, $price, $category_id, $product_id);
+                $stmt = $pdo->prepare("UPDATE products SET name=?, description=?, price=?, category_id=? WHERE id=?");
+                $stmt->execute([$name, $description, $price, $category_id, $product_id]);
                 $message = "Produit mis à jour avec succès";
             } else {
                 // Insertion
-                $stmt = $db->prepare("INSERT INTO products (name, description, price, category_id) VALUES (?, ?, ?, ?)");
-                $stmt->bind_param("ssdi", $name, $description, $price, $category_id);
+                $stmt = $pdo->prepare("INSERT INTO products (name, description, price, category_id) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$name, $description, $price, $category_id]);
                 $message = "Produit ajouté avec succès";
             }
             
-            if ($stmt->execute()) {
-                $_SESSION['flash_message'] = $message;
-                $_SESSION['flash_type'] = "success";
-                
-                // Redirection vers la liste des produits après modification
-                header("Location: products.php");
-                exit();
-            } else {
-                throw new Exception("Erreur lors de l'enregistrement");
-            }
-        } catch (Exception $e) {
+            $_SESSION['flash_message'] = $message;
+            $_SESSION['flash_type'] = "success";
+            
+            // Redirection vers la liste des produits après modification
+            header("Location: products.php");
+            exit();
+            
+        } catch (PDOException $e) {
             $errors[] = "Erreur database: " . $e->getMessage();
+            error_log("Database error: " . $e->getMessage());
         }
     }
 }
 
 // Récupération des catégories
-$cats_result = $db->query("SELECT id, name FROM categories ORDER BY name");
-if ($cats_result) {
-    while ($cat = $cats_result->fetch_assoc()) {
-        $categories[] = $cat;
-    }
-} else {
+try {
+    $stmt = $pdo->query("SELECT id, name FROM categories ORDER BY name");
+    $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
     $errors[] = "Erreur lors du chargement des catégories";
+    error_log("Database error: " . $e->getMessage());
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>

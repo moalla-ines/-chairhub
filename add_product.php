@@ -1,81 +1,104 @@
 <?php
-// Connexion à la base de données
+// Start session and include config
+session_start();
 require_once 'config.php';
+
+// Verify PDO connection
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    die("Erreur de connexion à la base de données");
+}
 
 // Gestion du formulaire
 $message = '';
 $message_type = ''; // success ou danger
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $name = $db->real_escape_string($_POST['name']);
-    $description = $db->real_escape_string($_POST['description']);
-    $price = floatval($_POST['price']);
-    $category_id = intval($_POST['category_id']);
-    $material = $db->real_escape_string($_POST['material']);
-    $dimensions = $db->real_escape_string($_POST['dimensions']);
-    $weight_capacity = $db->real_escape_string($_POST['weight_capacity']);
-    $colors = $db->real_escape_string($_POST['colors']);
-    $rating = floatval($_POST['rating']);
-    $featured = isset($_POST['featured']) ? 1 : 0;
-    $stock_quantity = intval($_POST['stock_quantity']);
+    try {
+        // Get and validate form data
+        $name = $_POST['name'];
+        $description = $_POST['description'];
+        $price = filter_input(INPUT_POST, 'price', FILTER_VALIDATE_FLOAT);
+        $category_id = filter_input(INPUT_POST, 'category_id', FILTER_VALIDATE_INT);
+        $material = $_POST['material'] ?? '';
+        $dimensions = $_POST['dimensions'] ?? '';
+        $weight_capacity = $_POST['weight_capacity'] ?? '';
+        $colors = $_POST['colors'] ?? '';
+        $rating = filter_input(INPUT_POST, 'rating', FILTER_VALIDATE_FLOAT);
+        $featured = isset($_POST['featured']) ? 1 : 0;
+        $stock_quantity = filter_input(INPUT_POST, 'stock_quantity', FILTER_VALIDATE_INT);
 
-    // Gestion de l'image
-    $image_url = '';
-    if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
-        $uploadDir = 'uploads/';
-        if (!is_dir($uploadDir)) {
-            if (!mkdir($uploadDir, 0777, true)) {
-                $message = "Erreur lors de la création du dossier upload";
-                $message_type = "danger";
-            }
+        // Validate required fields
+        if (empty($name) || empty($description) || $price === false || $category_id === false) {
+            throw new Exception("Tous les champs obligatoires doivent être remplis correctement");
         }
-        
-        // Générer un nom de fichier unique
-        $extension = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-        $filename = uniqid() . '.' . $extension;
-        $target_path = $uploadDir . $filename;
-        
-        // Vérification du type de fichier
-        $allowed_types = ['image/jpeg', 'image/png', 'image/gif'];
-        $file_type = $_FILES['image']['type'];
-        
-        if (!in_array($file_type, $allowed_types)) {
-            $message = "Type de fichier non autorisé. Seuls JPG, PNG et GIF sont acceptés.";
-            $message_type = "danger";
+
+        // Gestion de l'image
+        $image_url = '';
+        if (isset($_FILES['image']) && $_FILES['image']['error'] == UPLOAD_ERR_OK) {
+            $uploadDir = 'uploads/';
+            if (!is_dir($uploadDir)) {
+                if (!mkdir($uploadDir, 0777, true)) {
+                    throw new Exception("Erreur lors de la création du dossier upload");
+                }
+            }
+            
+            // Validate file type
+            $allowed_types = ['image/jpeg', 'image/png', 'image/gif'];
+            $file_type = $_FILES['image']['type'];
+            
+            if (!in_array($file_type, $allowed_types)) {
+                throw new Exception("Type de fichier non autorisé. Seuls JPG, PNG et GIF sont acceptés.");
+            }
+
+            // Generate unique filename and move file
+            $extension = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+            $filename = uniqid() . '.' . $extension;
+            $target_path = $uploadDir . $filename;
+            
+            if (!move_uploaded_file($_FILES['image']['tmp_name'], $target_path)) {
+                throw new Exception("Erreur lors de l'enregistrement de l'image");
+            }
+            
+            $image_url = $target_path;
         } else {
-            // Déplacer le fichier uploadé
-            if (move_uploaded_file($_FILES['image']['tmp_name'], $target_path)) {
-                $image_url = $target_path;
-            } else {
-                $message = "Erreur lors de l'enregistrement de l'image";
-                $message_type = "danger";
-            }
+            throw new Exception("Veuillez sélectionner une image valide");
         }
-    } else {
-        $message = "Veuillez sélectionner une image valide";
+
+        // Insert product using PDO
+        $stmt = $pdo->prepare("INSERT INTO products 
+            (name, description, price, category_id, material, dimensions, weight_capacity, colors, image_url, rating, featured, stock_quantity) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        
+        $stmt->execute([
+            $name, $description, $price, $category_id, $material, $dimensions, 
+            $weight_capacity, $colors, $image_url, $rating, $featured, $stock_quantity
+        ]);
+
+        $_SESSION['product_added'] = true;
+        $_SESSION['new_product_image'] = $image_url;
+        header("Location: products.php");
+        exit();
+
+    } catch (PDOException $e) {
+        $message = "Erreur de base de données: " . $e->getMessage();
         $message_type = "danger";
-    }
-
-    if (empty($message)) {
-        // Insertion du produit
-        $stmt = $db->prepare("INSERT INTO products (name, description, price, category_id, material, dimensions, weight_capacity, colors, image_url, rating, featured, stock_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("ssdissssssii", $name, $description, $price, $category_id, $material, $dimensions, $weight_capacity, $colors, $image_url, $rating, $featured, $stock_quantity);
-
-        if ($stmt->execute()) {
-            $_SESSION['product_added'] = true;
-            $_SESSION['new_product_image'] = $image_url;
-            header("Location: products.php");
-            exit();
-        } else {
-            $message = "Erreur : " . $stmt->error;
-            $message_type = "danger";
-        }
-        $stmt->close();
+        error_log("Database error: " . $e->getMessage());
+    } catch (Exception $e) {
+        $message = $e->getMessage();
+        $message_type = "danger";
     }
 }
 
 // Récupération des catégories
-$categories = $db->query("SELECT id, name FROM categories");
+try {
+    $stmt = $pdo->query("SELECT id, name FROM categories");
+    $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $message = "Erreur lors du chargement des catégories";
+    $message_type = "danger";
+    error_log("Database error: " . $e->getMessage());
+    $categories = [];
+}
 ?>
 
 <!DOCTYPE html>
@@ -152,9 +175,9 @@ $categories = $db->query("SELECT id, name FROM categories");
                                 <label for="category_id" class="form-label">Catégorie</label>
                                 <select class="form-select" id="category_id" name="category_id" required>
                                     <option value="">Sélectionnez une catégorie</option>
-                                    <?php while ($cat = $categories->fetch_assoc()): ?>
+                                    <?php foreach ($categories as $cat): ?>
                                         <option value="<?= $cat['id'] ?>"><?= htmlspecialchars($cat['name']) ?></option>
-                                    <?php endwhile; ?>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
                             <div class="col-md-6 mb-3">
@@ -216,5 +239,3 @@ $categories = $db->query("SELECT id, name FROM categories");
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
 </body>
 </html>
-
-<?php $db->close(); ?>

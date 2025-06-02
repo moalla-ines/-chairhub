@@ -1,15 +1,15 @@
 <?php
 session_start();
 
-// Vérification admin
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
+// Vérification admin plus robuste
+if (!isset($_SESSION['user_id'], $_SESSION['role'], $_SESSION['username']) || $_SESSION['role'] !== 'admin') {
     header('Location: login.php');
     exit();
 }
 
 require_once 'config.php';
 
-if (!isset($db) || !($db instanceof mysqli)) {
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Database connection error");
 }
 
@@ -17,49 +17,47 @@ if (!isset($db) || !($db instanceof mysqli)) {
 $total_users = 0;
 $total_products = 0;
 $recent_users = [];
-$orders = []; // Initialisation cruciale
+$recent_orders = [];
 $dashboard_error = null;
+$low_stock = []; // Ajouté pour éviter des erreurs potentielles
 
 try {
     // Nombre total d'utilisateurs
-    $result = $db->query("SELECT COUNT(*) as total_users FROM users");
-    $total_users = $result->fetch_assoc()['total_users'] ?? 0;
+    $stmt = $pdo->query("SELECT COUNT(*) as total_users FROM users");
+    $total_users = $stmt->fetchColumn() ?? 0;
     
     // Nombre total de produits
-    $result = $db->query("SELECT COUNT(*) as total_products FROM products");
-    $total_products = $result->fetch_assoc()['total_products'] ?? 0;
+    $stmt = $pdo->query("SELECT COUNT(*) as total_products FROM products");
+    $total_products = $stmt->fetchColumn() ?? 0;
     
     // Derniers utilisateurs inscrits
-    $result = $db->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
-    $recent_users = $result->fetch_all(MYSQLI_ASSOC) ?: [];
+    $stmt = $pdo->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
+    $recent_users = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     
-    // Produits avec faible stock
-    if ($is_admin) {
-    // Admin - voir les 5 dernières commandes de tous les utilisateurs
-    $result = $db->query("
+    // Commandes récentes
+    $query = "
         SELECT o.id, o.order_date, o.total_amount, o.status, u.name as customer_name 
         FROM orders o
         JOIN users u ON o.user_id = u.iduser
         ORDER BY o.order_date DESC 
         LIMIT 5
-    ");
-} else {
-    // Utilisateur normal - voir ses 5 dernières commandes
-    $result = $db->query("
-        SELECT id, order_date, total_amount, status 
-        FROM orders 
-        WHERE user_id = ".intval($_SESSION['user_id'])." 
-        ORDER BY order_date DESC 
-        LIMIT 5
-    ");
-}
-$recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
-} catch (Exception $e) {
+    ";
+    $stmt = $pdo->query($query);
+    $recent_orders = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    // Produits en faible stock (optionnel)
+    $stmt = $pdo->query("SELECT id, name, stock_quantity FROM products WHERE stock_quantity < 5 ORDER BY stock_quantity ASC");
+    $low_stock = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+} catch (PDOException $e) {
     error_log("Dashboard error: " . $e->getMessage());
     $dashboard_error = "Erreur lors du chargement des données";
+    // Réinitialisation des variables en cas d'erreur
+    $recent_orders = [];
+    $recent_users = [];
+    $low_stock = [];
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -198,6 +196,19 @@ $recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
         .logout-btn:hover {
             background: #c0392b;
         }
+        
+        .btn-sm {
+            padding: 5px 10px;
+            background: #3498db;
+            color: white;
+            border-radius: 3px;
+            text-decoration: none;
+            font-size: 0.8rem;
+        }
+        
+        .btn-sm:hover {
+            background: #2980b9;
+        }
     </style>
 </head>
 <body>
@@ -209,9 +220,9 @@ $recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
                 <li><a href="dashboard.php" class="active"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
                 <li><a href="products.php"><i class="fas fa-chair"></i> Products</a></li>
                 <li><a href="categorie.php"><i class="fas fa-list"></i> Categories</a></li>
-                <li><a href="users.php"><i class="fas fa-users"></i> Users</a></li>
-                <li><a href="orders.php"><i class="fas fa-shopping-cart"></i> Orders</a></li>
-                           </ul>
+                <li><a href="liste_users.php"><i class="fas fa-users"></i> Users</a></li>
+                <li><a href="orders_history.php"><i class="fas fa-shopping-cart"></i> Orders</a></li>
+            </ul>
         </div>
         
         <!-- Main Content -->
@@ -219,7 +230,7 @@ $recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
             <div class="header">
                 <h1>Admin Dashboard</h1>
                 <div>
-                    <span>Welcome, <?= htmlspecialchars($_SESSION['username']) ?> </span>
+                    <span>Welcome, <?= htmlspecialchars($_SESSION['username'] ?? 'Admin') ?></span>
                     <a href="logout.php" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
                 </div>
             </div>
@@ -243,8 +254,8 @@ $recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
                 </div>
                 
                 <div class="stat-card">
-                    <h3>History</h3>
-                    <div class="value"><?= count($orders) ?></div>
+                    <h3>Recent Orders</h3>
+                    <div class="value"><?= count($recent_orders) ?></div>
                     <a href="orders_history.php">View orders</a>
                 </div>
             </div>
@@ -264,11 +275,42 @@ $recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
                     <tbody>
                         <?php foreach($recent_users as $user): ?>
                         <tr>
-                            <td><?= htmlspecialchars($user['name']) ?></td>
-                            <td><?= htmlspecialchars($user['email']) ?></td>
-                            <td><?= date('M d, Y', strtotime($user['created_at'])) ?></td>
+                            <td><?= htmlspecialchars($user['name'] ?? '') ?></td>
+                            <td><?= htmlspecialchars($user['email'] ?? '') ?></td>
+                            <td><?= isset($user['created_at']) ? date('M d, Y', strtotime($user['created_at'])) : 'N/A' ?></td>
                             <td>
-                                <a href="users.php?action=view&id=<?= $user['id'] ?>" class="btn-sm">View</a>
+                                <a href="liste_users.php?action=view&id=<?= $user['iduser'] ?? '' ?>" class="btn-sm">View</a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Recent Orders Table -->
+            <div class="table-container">
+                <h2>Recent Orders</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($recent_orders as $order): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($order['id'] ?? '') ?></td>
+                            <td><?= isset($order['order_date']) ? date('M d, Y', strtotime($order['order_date'])) : 'N/A' ?></td>
+                            <td><?= htmlspecialchars($order['customer_name'] ?? '') ?></td>
+                            <td>$<?= number_format($order['total_amount'] ?? 0, 2) ?></td>
+                            <td><?= htmlspecialchars($order['status'] ?? '') ?></td>
+                            <td>
+                                <a href="orders_history.php?action=view&id=<?= $order['id'] ?? '' ?>" class="btn-sm">View</a>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -291,10 +333,10 @@ $recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
                     <tbody>
                         <?php foreach($low_stock as $product): ?>
                         <tr>
-                            <td><?= htmlspecialchars($product['name']) ?></td>
-                            <td><?= $product['stock_quantity'] ?></td>
+                            <td><?= htmlspecialchars($product['name'] ?? '') ?></td>
+                            <td><?= $product['stock_quantity'] ?? 0 ?></td>
                             <td>
-                                <a href="products.php?action=edit&id=<?= $product['id'] ?>" class="btn-sm">Restock</a>
+                                <a href="products.php?action=edit&id=<?= $product['id'] ?? '' ?>" class="btn-sm">Restock</a>
                             </td>
                         </tr>
                         <?php endforeach; ?>
