@@ -356,7 +356,7 @@ ob_end_flush();
                 </form>
             </section
 
-        <!-- Affichage détaillé d'un produit -->
+        <-- Affichage détaillé d'un produit -->
         <?php elseif ($detailed_product): ?>
             <section class="product-detail">
                  <?php if($_SESSION['role'] === 'admin'): ?>

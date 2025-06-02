@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-// Vérification admin plus robuste
+// Vérification admin
 if (!isset($_SESSION['user_id'], $_SESSION['role'], $_SESSION['username']) || $_SESSION['role'] !== 'admin') {
     header('Location: login.php');
     exit();
@@ -13,13 +13,12 @@ if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Database connection error");
 }
 
-// Initialisation des variables avec des valeurs par défaut
+// Initialisation des variables
 $total_users = 0;
 $total_products = 0;
-$recent_users = [];
-$recent_orders = [];
+$total_orders = 0;
 $dashboard_error = null;
-$low_stock = []; // Ajouté pour éviter des erreurs potentielles
+$low_stock = [];
 
 try {
     // Nombre total d'utilisateurs
@@ -30,32 +29,17 @@ try {
     $stmt = $pdo->query("SELECT COUNT(*) as total_products FROM products");
     $total_products = $stmt->fetchColumn() ?? 0;
     
-    // Derniers utilisateurs inscrits
-    $stmt = $pdo->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
-    $recent_users = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    
-    // Commandes récentes
-    $query = "
-        SELECT o.id, o.order_date, o.total_amount, o.status, u.name as customer_name 
-        FROM orders o
-        JOIN users u ON o.user_id = u.iduser
-        ORDER BY o.order_date DESC 
-        LIMIT 5
-    ";
-    $stmt = $pdo->query($query);
-    $recent_orders = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    // Nombre total de commandes
+    $stmt = $pdo->query("SELECT COUNT(*) as total_orders FROM orders");
+    $total_orders = $stmt->fetchColumn() ?? 0;
 
-    // Produits en faible stock (optionnel)
+    // Produits en faible stock
     $stmt = $pdo->query("SELECT id, name, stock_quantity FROM products WHERE stock_quantity < 5 ORDER BY stock_quantity ASC");
     $low_stock = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 } catch (PDOException $e) {
     error_log("Dashboard error: " . $e->getMessage());
     $dashboard_error = "Erreur lors du chargement des données";
-    // Réinitialisation des variables en cas d'erreur
-    $recent_orders = [];
-    $recent_users = [];
-    $low_stock = [];
 }
 ?>
 <!DOCTYPE html>
@@ -109,31 +93,48 @@ try {
         }
         
         .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        
-        .stat-card h3 {
-            margin-top: 0;
-            color: #7f8c8d;
-            font-size: 1rem;
-        }
-        
-        .stat-card .value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #2c3e50;
-            margin: 10px 0;
-        }
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* Augmentation de la largeur minimale */
+        gap: 25px; /* Espacement accru */
+        margin-bottom: 40px; /* Marge augmentée */
+    }
+    
+    .stat-card {
+        background: white;
+        padding: 30px; /* Padding augmenté */
+        border-radius: 12px; /* Bordures plus arrondies */
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1); /* Ombre plus prononcée */
+        transition: transform 0.3s ease, box-shadow 0.3s ease; /* Animation ajoutée */
+        min-height: 180px; /* Hauteur minimale fixe */
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-5px); /* Effet de levage au survol */
+        box-shadow: 0 6px 15px rgba(0,0,0,0.15);
+    }
+    
+    .stat-card h3 {
+        margin-top: 0;
+        color: #7f8c8d;
+        font-size: 1.2rem; /* Taille de police augmentée */
+        margin-bottom: 15px;
+    }
+    
+    .stat-card .value {
+        font-size: 2.8rem; /* Taille considérablement augmentée */
+        font-weight: bold;
+        color: #2c3e50;
+        margin: 15px 0;
+    }
+    
+    .stat-card a {
+        align-self: flex-start;
+        padding: 8px 16px;
+        font-size: 0.9rem;
+    }
         
         .table-container {
             background: white;
@@ -141,26 +142,6 @@ try {
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             margin-bottom: 20px;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        th, td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        th {
-            background-color: #f8f9fa;
-            color: #2c3e50;
-        }
-        
-        tr:hover {
-            background-color: #f5f5f5;
         }
         
         .alert {
@@ -185,7 +166,7 @@ try {
         }
         
         .logout-btn {
-            background: #e74c3c;
+            background: #2c3e50;
             color: white;
             border: none;
             padding: 8px 15px;
@@ -194,7 +175,7 @@ try {
         }
         
         .logout-btn:hover {
-            background: #c0392b;
+            background: #2c3e50;
         }
         
         .btn-sm {
@@ -254,68 +235,10 @@ try {
                 </div>
                 
                 <div class="stat-card">
-                    <h3>Recent Orders</h3>
-                    <div class="value"><?= count($recent_orders) ?></div>
-                    <a href="orders_history.php">View orders</a>
+                    <h3>Total Orders</h3>
+                    <div class="value"><?= $total_orders ?></div>
+                    <a href="orders_history.php">View all orders</a>
                 </div>
-            </div>
-            
-            <!-- Recent Users Table -->
-            <div class="table-container">
-                <h2>Recent Users</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Joined</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($recent_users as $user): ?>
-                        <tr>
-                            <td><?= htmlspecialchars($user['name'] ?? '') ?></td>
-                            <td><?= htmlspecialchars($user['email'] ?? '') ?></td>
-                            <td><?= isset($user['created_at']) ? date('M d, Y', strtotime($user['created_at'])) : 'N/A' ?></td>
-                            <td>
-                                <a href="liste_users.php?action=view&id=<?= $user['iduser'] ?? '' ?>" class="btn-sm">View</a>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            
-            <!-- Recent Orders Table -->
-            <div class="table-container">
-                <h2>Recent Orders</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Order ID</th>
-                            <th>Date</th>
-                            <th>Customer</th>
-                            <th>Amount</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($recent_orders as $order): ?>
-                        <tr>
-                            <td><?= htmlspecialchars($order['id'] ?? '') ?></td>
-                            <td><?= isset($order['order_date']) ? date('M d, Y', strtotime($order['order_date'])) : 'N/A' ?></td>
-                            <td><?= htmlspecialchars($order['customer_name'] ?? '') ?></td>
-                            <td>$<?= number_format($order['total_amount'] ?? 0, 2) ?></td>
-                            <td><?= htmlspecialchars($order['status'] ?? '') ?></td>
-                            <td>
-                                <a href="orders_history.php?action=view&id=<?= $order['id'] ?? '' ?>" class="btn-sm">View</a>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
             </div>
             
             <!-- Low Stock Alert -->

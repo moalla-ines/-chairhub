@@ -7,7 +7,7 @@ session_start([
 ]);
 require_once 'config.php';
 
-if (!isset($db) || !($db instanceof mysqli)) {
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Database connection not established");
 }
 
@@ -68,23 +68,27 @@ $page_title = "Comfort Chairs - Categories";
             <h2>All Chair Categories</h2>
             <div class="categories-grid">
                 <?php
-                $query = "SELECT * FROM categories";
-                $result = $db->query($query);
+                try {
+                    $query = "SELECT * FROM categories";
+                    $stmt = $pdo->query($query);
+                    
+                    if ($stmt->rowCount() > 0) {
+                        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            $imagePath = 'images/' . $row['image_url'];
+                            $fullPath = $_SERVER['DOCUMENT_ROOT'] . '/chairhub/' . $imagePath;
 
-                if ($result && $result->num_rows > 0) {
-                    while ($row = $result->fetch_assoc()) {
-                        $imagePath = 'images/' . $row['image_url'];
-                        $fullPath = $_SERVER['DOCUMENT_ROOT'] . '/chairhub/' . $imagePath;
-
-                        echo '<div class="category-card">';
-                        echo '<img src="' . $imagePath . '" alt="' . htmlspecialchars($row['name']) . '" 
-                             onerror="this.src=\'images/default.jpg\';this.alt=\'Image not available\'">';
-                        echo '<h3>' . htmlspecialchars($row['name']) . '</h3>';
-                        echo '<a href="products.php?category=' . $row['id'] . '" class="btn">View Collection</a>';
-                        echo '</div>';
+                            echo '<div class="category-card">';
+                            echo '<img src="' . $imagePath . '" alt="' . htmlspecialchars($row['name']) . '" 
+                                 onerror="this.src=\'images/default.jpg\';this.alt=\'Image not available\'">';
+                            echo '<h3>' . htmlspecialchars($row['name']) . '</h3>';
+                            echo '<a href="products.php?category=' . $row['id'] . '" class="btn">View Collection</a>';
+                            echo '</div>';
+                        }
+                    } else {
+                        echo '<p>No categories found.</p>';
                     }
-                } else {
-                    echo '<p>No categories found.</p>';
+                } catch (PDOException $e) {
+                    echo '<p>Error loading categories: ' . htmlspecialchars($e->getMessage()) . '</p>';
                 }
                 ?>
             </div>
@@ -131,6 +135,5 @@ $page_title = "Comfort Chairs - Categories";
     </div>
 </footer>
 
-<?php $db->close(); ?>
 </body>
 </html>

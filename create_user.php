@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                               VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$name, $password, $email, $phone, $country, $role]);
         
-        header("Location: list_users.php?success=1");
+        header("Location: liste_users.php?success=1");
         exit();
     } catch (PDOException $e) {
         $error = "Erreur lors de la création : " . $e->getMessage();
