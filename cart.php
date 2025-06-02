@@ -25,6 +25,26 @@ $page_title = "Your Shopping Cart - Comfort Chairs";
 
 // Process cart actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Handle adding to cart
+    if (isset($_POST['add_to_cart']) && isset($_POST['product_id'])) {
+        $product_id = intval($_POST['product_id']);
+        $quantity = isset($_POST['quantity']) ? max(1, intval($_POST['quantity'])) : 1;
+
+        if (!isset($_SESSION['cart'])) {
+            $_SESSION['cart'] = [];
+        }
+
+        if (isset($_SESSION['cart'][$product_id])) {
+            $_SESSION['cart'][$product_id] += $quantity;
+        } else {
+            $_SESSION['cart'][$product_id] = $quantity;
+        }
+
+        $_SESSION['flash_message'] = "Product added to cart!";
+        header("Location: cart.php");
+        exit();
+    }
+
     // Handle item removal
     if (isset($_POST['remove_item']) && isset($_POST['product_id'])) {
         $remove_id = intval($_POST['product_id']);
@@ -33,20 +53,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_message'] = "Item removed from cart";
         }
     }
-    
+
     // Handle quantity update
     if (isset($_POST['update_quantities']) && isset($_POST['quantities'])) {
         foreach ($_POST['quantities'] as $product_id => $quantity) {
             $product_id = intval($product_id);
             $quantity = max(1, intval($quantity));
-            
+           
             if (isset($_SESSION['cart'][$product_id])) {
                 $_SESSION['cart'][$product_id] = $quantity;
             }
         }
         $_SESSION['flash_message'] = "Cart updated successfully";
     }
-    
+
     // Redirect to prevent form resubmission
     header("Location: cart.php");
     exit();

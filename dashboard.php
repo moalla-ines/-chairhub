@@ -2,12 +2,8 @@
 session_start();
 
 // Vérification admin
-<<<<<<< HEAD
 if (!isset($_SESSION['user_id'], $_SESSION['role'], $_SESSION['username']) || $_SESSION['role'] !== 'admin') {
     header('Location: login.php');
-=======
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
->>>>>>> d7a6a9229c47678e7ca43b40b7c88fa7a96c3462
     exit();
 }
 
@@ -20,12 +16,7 @@ if (!isset($pdo) || !($pdo instanceof PDO)) {
 // Initialisation des variables
 $total_users = 0;
 $total_products = 0;
-<<<<<<< HEAD
 $total_orders = 0;
-=======
-$recent_users = [];
-$recent_orders = []; // Correction: variable cohérente avec le code
->>>>>>> d7a6a9229c47678e7ca43b40b7c88fa7a96c3462
 $dashboard_error = null;
 $low_stock = [];
 
@@ -38,7 +29,6 @@ try {
     $stmt = $pdo->query("SELECT COUNT(*) as total_products FROM products");
     $total_products = $stmt->fetchColumn() ?? 0;
     
-<<<<<<< HEAD
     // Nombre total de commandes
     $stmt = $pdo->query("SELECT COUNT(*) as total_orders FROM orders");
     $total_orders = $stmt->fetchColumn() ?? 0;
@@ -46,34 +36,6 @@ try {
     // Produits en faible stock
     $stmt = $pdo->query("SELECT id, name, stock_quantity FROM products WHERE stock_quantity < 5 ORDER BY stock_quantity ASC");
     $low_stock = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-=======
-    // Derniers utilisateurs inscrits
-    $stmt = $pdo->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
-    $recent_users = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    
-    // Commandes récentes
-    if (($_SESSION['role'] ?? '') === 'admin') {
-        // Admin - voir les 5 dernières commandes de tous les utilisateurs
-        $stmt = $pdo->query("
-            SELECT o.id, o.order_date, o.total_amount, o.status, u.name as customer_name 
-            FROM orders o
-            JOIN users u ON o.user_id = u.iduser
-            ORDER BY o.order_date DESC 
-            LIMIT 5
-        ");
-    } else {
-        // Utilisateur normal - voir ses 5 dernières commandes (version sécurisée)
-        $stmt = $pdo->prepare("
-            SELECT id, order_date, total_amount, status 
-            FROM orders 
-            WHERE user_id = ?
-            ORDER BY order_date DESC 
-            LIMIT 5
-        ");
-        $stmt->execute([$_SESSION['user_id']]);
-    }
-    $recent_orders = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
->>>>>>> d7a6a9229c47678e7ca43b40b7c88fa7a96c3462
 
 } catch (PDOException $e) {
     error_log("Dashboard error: " . $e->getMessage());

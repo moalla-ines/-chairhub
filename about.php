@@ -13,7 +13,7 @@ $page_title = "À propos de nous";
     <style>
         .about-section {
             padding: 80px 20px;
-            background-color:rgb(196, 192, 192);
+        background-color: #6c757d;
             text-align: center;
         }
 

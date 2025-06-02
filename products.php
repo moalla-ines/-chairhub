@@ -79,20 +79,52 @@ if (isset($_POST['save_product'])) {
 }
 
 // Ajout au panier
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
-    if (!isset($_SESSION['cart'])) {
-        $_SESSION['cart'] = [];
-    }
-
-    $product_id = intval($_POST['id']);
-    $quantity = max(1, intval($_POST['quantity'] ?? 1));
-    $_SESSION['cart'][$product_id] = ($_SESSION['cart'][$product_id] ?? 0) + $quantity;
-    $_SESSION['flash_message'] = "Produit ajouté au panier !";
-
-    header("Location: product.php?id=" . $product_id);
-    exit();
+// Initialize cart if not exists
+if (!isset($_SESSION['cart']) || !is_array($_SESSION['cart'])) {
+    $_SESSION['cart'] = [];
 }
 
+// Add to cart - Improved version
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
+    $product_id = intval($_POST['id']);
+    $quantity = isset($_POST['quantity']) ? max(1, intval($_POST['quantity'])) : 1;
+    
+    // Verify product exists and is available
+    $stmt = $pdo->prepare("SELECT id, name, price, stock_quantity FROM products WHERE id = ?");
+    $stmt->execute([$product_id]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$product) {
+        $_SESSION['flash_message'] = "Product not found!";
+        header("Location: product.php");
+        exit();
+    }
+    
+    // Check stock availability
+    if (isset($product['stock_quantity']) && $product['stock_quantity'] < $quantity) {
+        $_SESSION['flash_message'] = "Not enough stock available!";
+        header("Location: product.php?id=" . $product_id);
+        exit();
+    }
+    
+    // Add to cart or update quantity
+    if (isset($_SESSION['cart'][$product_id])) {
+        $_SESSION['cart'][$product_id] += $quantity;
+    } else {
+        $_SESSION['cart'][$product_id] = $quantity;
+    }
+    
+    // Update product data in cart
+    $_SESSION['cart_products'][$product_id] = [
+        'name' => $product['name'],
+        'price' => $product['price'],
+        'image_url' => $product['image_url'] ?? ''
+    ];
+    
+    $_SESSION['flash_message'] = htmlspecialchars($product['name']) . " has been added to your cart!";
+    header("Location: cart.php");
+    exit();
+}
 // Récupérer toutes les catégories avec leurs produits
 $categories = [];
 $stmt = $pdo->query("SELECT c.id, c.name, c.image_url FROM categories c");
