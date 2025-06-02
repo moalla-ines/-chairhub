@@ -1,11 +1,15 @@
 <?php
-session_start();
+session_start([
+    'cookie_lifetime' => 86400,
+    'cookie_secure' => isset($_SERVER['HTTPS']),
+    'cookie_httponly' => true,
+    'cookie_samesite' => 'Strict'
+]);
 require_once 'config.php';
 
-// Vérification connexion
-if (!isset($_SESSION['iduser'])) {
-    header('Location: login.php');
-    exit();
+// Vérification de la connexion PDO
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    die("Database connection not established");
 }
 
 // Récupération du rôle
@@ -26,7 +30,8 @@ if ($is_admin) {
         JOIN users u ON o.user_id = u.iduser
         ORDER BY o.order_date DESC
     ";
-    $stmt = $db->prepare($query);
+    $stmt = $pdo->prepare($query);
+    $stmt->execute();
 } else {
     // Utilisateur normal - seulement ses commandes
     $query = "
@@ -39,16 +44,13 @@ if ($is_admin) {
         WHERE user_id = ?
         ORDER BY order_date DESC
     ";
-    $stmt = $db->prepare($query);
-    $stmt->bind_param("i", $_SESSION['user_id']);
+    $stmt = $pdo->prepare($query);
+    $stmt->execute([$_SESSION['user_id']]);
 }
 
-// Exécution
-$stmt->execute();
-$orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
+// Récupération des résultats
+$orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>

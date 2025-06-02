@@ -7,13 +7,13 @@ session_start([
     'cookie_samesite' => 'Lax'
 ]);
 
+
 require_once 'config.php';
 
-// Vérification de la connexion à la base de données
-if (!isset($db) || !($db instanceof mysqli)) {
+// Vérification améliorée de la connexion PDO
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Connexion à la base de données non établie.");
 }
-
 // Initialisation
 $is_admin = false;
 $user_role = '';
@@ -23,21 +23,20 @@ if (isset($_SESSION['iduser'])) {
     $user_id = intval($_SESSION['iduser']);
 
     // Requête pour récupérer le rôle de l'utilisateur
-    $stmt = $db->prepare("SELECT role FROM users WHERE iduser = ?");
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $stmt->bind_result($user_role);
-    $stmt->fetch();
-    $stmt->close();
+    $stmt = $pdo->prepare("SELECT role FROM users WHERE iduser = ?");
+$stmt->execute([$user_id]);
+$user_role = $stmt->fetchColumn();
+$stmt->closeCursor();
 
     if ($user_role === 'admin') {
         $is_admin = true;
     }
 }
+
 if (isset($_SESSION['product_added']) && $_SESSION['product_added']) {
     // Récupérer le dernier produit ajouté
-    $result = $db->query("SELECT * FROM products ORDER BY id DESC LIMIT 1");
-    $new_product = $result->fetch_assoc();
+    $stmt = $pdo->query("SELECT * FROM products ORDER BY id DESC LIMIT 1");
+    $new_product = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($new_product) {
         echo '<div class="alert alert-success">Produit ajouté avec succès!</div>';
@@ -47,32 +46,33 @@ if (isset($_SESSION['product_added']) && $_SESSION['product_added']) {
     unset($_SESSION['product_added']);
     unset($_SESSION['new_product_image']);
 }
+
 // Redirection vers edit_product.php si on clique sur "Ajouter un produit"
 if (isset($_GET['add_product'])) {
     header("Location: edit_product.php");
     exit();
 }
+
 // Ajout/Modification de produit
 if (isset($_POST['save_product'])) {
     $product_id = intval($_POST['id'] ?? 0);
-    $name = $db->real_escape_string($_POST['name']);
-    $description = $db->real_escape_string($_POST['description']);
+    $name = $_POST['name'];
+    $description = $_POST['description'];
     $price = floatval($_POST['price']);
     $category_id = intval($_POST['category_id']);
 
     if ($product_id > 0) {
         // Mise à jour
-        $stmt = $db->prepare("UPDATE products SET name=?, description=?, price=?, category_id=? WHERE id=?");
-        $stmt->bind_param("ssdii", $name, $description, $price, $category_id, $product_id);
+        $stmt = $pdo->prepare("UPDATE products SET name=?, description=?, price=?, category_id=? WHERE id=?");
+        $stmt->execute([$name, $description, $price, $category_id, $product_id]);
         $message = "Produit mis à jour avec succès";
     } else {
         // Insertion
-        $stmt = $db->prepare("INSERT INTO products (name, description, price, category_id) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssdi", $name, $description, $price, $category_id);
+        $stmt = $pdo->prepare("INSERT INTO products (name, description, price, category_id) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$name, $description, $price, $category_id]);
         $message = "Produit ajouté avec succès";
     }
 
-    $stmt->execute();
     $_SESSION['flash_message'] = $message;
     header("Location: product.php");
     exit();
@@ -95,20 +95,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
 
 // Récupérer toutes les catégories avec leurs produits
 $categories = [];
-$categories_result = $db->query("SELECT c.id, c.name, c.image_url FROM categories c");
+$stmt = $pdo->query("SELECT c.id, c.name, c.image_url FROM categories c");
+$categories_result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-while ($category = $categories_result->fetch_assoc()) {
-    $stmt = $db->prepare("SELECT * FROM products WHERE category_id = ?");
-    $stmt->bind_param("i", $category['id']);
-    $stmt->execute();
-    $products_result = $stmt->get_result();
-
-    $category['products'] = [];
-    while ($product = $products_result->fetch_assoc()) {
-        $category['products'][] = $product;
-    }
+foreach ($categories_result as $category) {
+    $stmt = $pdo->prepare("SELECT * FROM products WHERE category_id = ?");
+    $stmt->execute([$category['id']]);
+    $category['products'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $categories[] = $category;
-    $stmt->close();
+    $stmt->closeCursor();
 }
 
 // Détails produit
@@ -116,13 +111,12 @@ $detailed_product = null;
 $editing_product = null;
 if (isset($_GET['id']) && is_numeric($_GET['id'])) {
     $product_id = intval($_GET['id']);
-    $stmt = $db->prepare("SELECT p.*, c.name as category_name FROM products p 
+    $stmt = $pdo->prepare("SELECT p.*, c.name as category_name FROM products p 
                           JOIN categories c ON p.category_id = c.id 
                           WHERE p.id = ?");
-    $stmt->bind_param("i", $product_id);
-    $stmt->execute();
-    $detailed_product = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+    $stmt->execute([$product_id]);
+    $detailed_product = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt->closeCursor();
 
     if ($is_admin && isset($_GET['edit'])) {
         $editing_product = $detailed_product;
@@ -131,10 +125,9 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) {
 
 // Pour le formulaire d'admin
 $all_categories = [];
-$cats_result = $db->query("SELECT id, name FROM categories");
-while ($cat = $cats_result->fetch_assoc()) {
-    $all_categories[] = $cat;
-}
+$stmt = $pdo->query("SELECT id, name FROM categories");
+$all_categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$stmt->closeCursor();
 
 $page_title = $detailed_product ? htmlspecialchars($detailed_product['name']) : "Nos Produits - Comfort Chairs";
 ob_end_flush();
@@ -361,7 +354,7 @@ ob_end_flush();
                         </button>
                     </div>
                 </form>
-            </section>
+            </section
 
         <!-- Affichage détaillé d'un produit -->
         <?php elseif ($detailed_product): ?>

@@ -1,8 +1,8 @@
 <?php
 require_once 'config.php';
 
-// Vérifier que la connexion existe
-if (!isset($db) || !($db instanceof mysqli)) {
+// Vérifier que la connexion PDO existe
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Erreur de connexion à la base de données");
 }
 
@@ -14,31 +14,28 @@ if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
 
 $user_id = (int)$_GET['id'];
 
-// Vérifier que l'utilisateur existe avant suppression
-$check_stmt = $db->prepare("SELECT iduser FROM users WHERE iduser = ?");
-$check_stmt->bind_param("i", $user_id);
-$check_stmt->execute();
-$check_result = $check_stmt->get_result();
-
-if ($check_result->num_rows === 0) {
-    header("Location: liste_users.php?error=user_not_found");
-    exit();
-}
-
-// Suppression de l'utilisateur
 try {
-    $delete_stmt = $db->prepare("DELETE FROM users WHERE iduser = ?");
-    $delete_stmt->bind_param("i", $user_id);
-    $delete_stmt->execute();
+    // Vérifier que l'utilisateur existe avant suppression
+    $check_stmt = $pdo->prepare("SELECT iduser FROM users WHERE iduser = ?");
+    $check_stmt->execute([$user_id]);
     
-    if ($delete_stmt->affected_rows > 0) {
+    if ($check_stmt->rowCount() === 0) {
+        header("Location: liste_users.php?error=user_not_found");
+        exit();
+    }
+
+    // Suppression de l'utilisateur
+    $delete_stmt = $pdo->prepare("DELETE FROM users WHERE iduser = ?");
+    $delete_stmt->execute([$user_id]);
+    
+    if ($delete_stmt->rowCount() > 0) {
         header("Location: liste_users.php?success=user_deleted");
     } else {
         header("Location: liste_users.php?error=delete_failed");
     }
     exit();
     
-} catch (Exception $e) {
+} catch (PDOException $e) {
     error_log("Delete user error: " . $e->getMessage());
     header("Location: liste_users.php?error=database_error");
     exit();

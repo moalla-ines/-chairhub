@@ -7,25 +7,22 @@ session_start([
 ]);
 require_once 'config.php';
 
-
-
-if (!isset($db) || !($db instanceof mysqli)) {
+// Vérification de la connexion PDO
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Database connection not established");
 }
 
 $page_title = "Comfort Chairs - Home";
 ?>
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
+    <title><?php echo htmlspecialchars($page_title, ENT_QUOTES, 'UTF-8'); ?></title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-   
 </head>
 <body>
     <header>
@@ -47,11 +44,8 @@ $page_title = "Comfort Chairs - Home";
                         </a>
                     </li>
                     <li>
-                    <?php if(isset($_SESSION['user_id'])): ?>
-                            <!-- Debug: Affiche les infos de session en commentaire HTML -->
-                            <!-- Session: <?= htmlspecialchars(json_encode($_SESSION)) ?> -->
-                            
-                            <?php if($_SESSION['role'] === 'admin'): ?>
+                        <?php if(isset($_SESSION['user_id'])): ?>
+                            <?php if(isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                                 <a href="dashboard.php" class="admin-link">
                                     <i class="fas fa-tachometer-alt"></i> Dashboard
                                 </a>
@@ -63,10 +57,8 @@ $page_title = "Comfort Chairs - Home";
                         <?php else: ?>
                             <a href="login.php"><i class="fas fa-sign-in-alt"></i> Login</a>
                         <?php endif; ?>
-                        
                     </li>
                 </ul>
-                
             </nav>
         </div>
     </header>
@@ -79,67 +71,69 @@ $page_title = "Comfort Chairs - Home";
                 <a href="products.php" class="btn">Shop Now</a>
             </div>
         </section>
+
         <section class="featured-categories">
-    <div class="container">
-        <h2>Our Chair Categories</h2>
-        <div class="categories-grid">
-            <?php
-            $query = "SELECT * FROM categories LIMIT 4";
-            $result = $db->query($query);
-            
-            if($result->num_rows > 0) {
-                while($row = $result->fetch_assoc()) {
-                    // Chemin relatif depuis la racine du site
-                    $imagePath = 'images/' . $row['image_url'];
-                    
-                    // Debug: vérifiez que le fichier existe
-                    $fullPath = $_SERVER['DOCUMENT_ROOT'] . '/chairhub/' . $imagePath;
-                    if (!file_exists($fullPath)) {
-                        echo "<!-- Fichier introuvable: $fullPath -->";
+            <div class="container">
+                <h2>Our Chair Categories</h2>
+                <div class="categories-grid">
+                    <?php
+                    try {
+                        $stmt = $pdo->query("SELECT * FROM categories LIMIT 4");
+                        
+                        if($stmt && $stmt->rowCount() > 0) {
+                            while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                                $imagePath = 'images/' . $row['image_url'];
+                                echo '<div class="category-card">';
+                                echo '<img src="'.htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8').'" 
+                                     alt="'.htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8').'" 
+                                     onerror="this.src=\'images/default.jpg\';this.alt=\'Image not available\'">';
+                                echo '<h3>'.htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8').'</h3>';
+                                echo '<a href="products.php?category='.(int)$row['id'].'" class="btn">View Collection</a>';
+                                echo '</div>';
+                            }
+                        } else {
+                            echo '<p>No categories found.</p>';
+                        }
+                    } catch (PDOException $e) {
+                        error_log("Database error: " . $e->getMessage());
+                        echo '<p>Error loading categories.</p>';
                     }
-                    
-                    echo '<div class="category-card">';
-                    echo '<img src="'.$imagePath.'" alt="'.htmlspecialchars($row['name']).'" 
-                         onerror="this.src=\'images/default.jpg\';this.alt=\'Image non disponible\'">';
-                    echo '<h3>'.htmlspecialchars($row['name']).'</h3>';
-                    echo '<a href="products.php?category='.$row['id'].'" class="btn">View Collection</a>';
-                    echo '</div>';
-                }
-            } else {
-                echo '<p>No categories found.</p>';
-            }
-            ?>
-        </div>
-    </div>
-</section>
+                    ?>
+                </div>
+            </div>
+        </section>
 
-<section class="featured-products">
-    <div class="container">
-        <h2>Featured Chairs</h2>
-        <div class="products-grid">
-            <?php
-            $query = "SELECT * FROM products WHERE featured=1 LIMIT 4";
-            $result = $db->query($query);
-            
-            if($result->num_rows > 0) {
-                while($row = $result->fetch_assoc()) {
-                    $imagePath = 'images/' . $row['image_url'];
-                    echo '<div class="product-card">';
-                    echo '<img src="'.$imagePath.'" alt="'.htmlspecialchars($row['name']).'" 
-                         onerror="this.src=\'images/default.jpg\';this.alt=\'Image non disponible\'">';
-                    echo '<h3>'.htmlspecialchars($row['name']).'</h3>';
-                    echo '<p class="price">$'.number_format($row['price'], 2).'</p>';
-                    echo '<a href="details_product.php?id='.$row['id'].'" class="btn">View Details</a>';
-                    echo '</div>';
-                }
-            } else {
-                echo '<p>No featured products available.</p>';
-            }
-            ?>
-        </div>
-    </div>
-</section>
-
+        <section class="featured-products">
+            <div class="container">
+                <h2>Featured Chairs</h2>
+                <div class="products-grid">
+                    <?php
+                    try {
+                        $stmt = $pdo->query("SELECT * FROM products WHERE featured=1 LIMIT 4");
+                        
+                        if($stmt && $stmt->rowCount() > 0) {
+                            while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                                $imagePath = 'images/' . $row['image_url'];
+                                echo '<div class="product-card">';
+                                echo '<img src="'.htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8').'" 
+                                     alt="'.htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8').'" 
+                                     onerror="this.src=\'images/default.jpg\';this.alt=\'Image not available\'">';
+                                echo '<h3>'.htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8').'</h3>';
+                                echo '<p class="price">$'.number_format((float)$row['price'], 2).'</p>';
+                                echo '<a href="details_product.php?id='.(int)$row['id'].'" class="btn">View Details</a>';
+                                echo '</div>';
+                            }
+                        } else {
+                            echo '<p>No featured products available.</p>';
+                        }
+                    } catch (PDOException $e) {
+                        error_log("Database error: " . $e->getMessage());
+                        echo '<p>Error loading featured products.</p>';
+                    }
+                    ?>
+                </div>
+            </div>
+        </section>
     </main>
 
     <footer>
@@ -180,11 +174,5 @@ $page_title = "Comfort Chairs - Home";
             <p>&copy; <?php echo date("Y"); ?> Comfort Chairs. All Rights Reserved.</p>
         </div>
     </footer>
-
-   
 </body>
-<?php
-$db->close();
-?>
 </html>
-

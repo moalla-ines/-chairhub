@@ -1,14 +1,17 @@
 <?php
+ob_start();
 session_start([
     'cookie_lifetime' => 86400,
     'cookie_secure' => isset($_SERVER['HTTPS']),
     'cookie_httponly' => true,
-    'cookie_samesite' => 'Strict'
+    'cookie_samesite' => 'Lax'
 ]);
+
 require_once 'config.php';
 
-if (!isset($db) || !($db instanceof mysqli)) {
-    die("Database connection not established");
+// Vérification améliorée de la connexion PDO
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    die("Connexion à la base de données non établie.");
 }
 
 // Vérifier si un ID produit est fourni
@@ -24,29 +27,35 @@ $query = "SELECT p.*, c.name AS category_name
           FROM products p 
           JOIN categories c ON p.category_id = c.id 
           WHERE p.id = ?";
-$stmt = $db->prepare($query);
-$stmt->bind_param("i", $product_id);
-$stmt->execute();
-$result = $stmt->get_result();
+$stmt = $pdo->prepare($query);
+$stmt->execute([$product_id]);
+$product = $stmt->fetch(PDO::FETCH_ASSOC);
 
-if ($result->num_rows === 0) {
+if (!$product) {
     header("Location: products.php");
     exit();
 }
 
-$product = $result->fetch_assoc();
-$stmt->close();
-
-// Gestion de l'ajout au panier
+// Gestion de l'ajout au panier - CORRECTION ICI
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
-    if (!isset($_SESSION['cart'])) {
+    if (!isset($_SESSION['cart']) || !is_array($_SESSION['cart'])) {
         $_SESSION['cart'] = [];
     }
 
-    $quantity = max(1, intval($_POST['quantity'] ?? 1));
-    $_SESSION['cart'][$product_id] = ($_SESSION['cart'][$product_id] ?? 0) + $quantity;
+    $quantity = isset($_POST['quantity']) ? max(1, intval($_POST['quantity'])) : 1;
     
-    $_SESSION['flash_message'] = "Product added to cart!";
+    // Initialiser à 0 si non existant
+    if (!isset($_SESSION['cart'][$product_id])) {
+        $_SESSION['cart'][$product_id] = 0;
+    }
+    
+    // Ajouter la quantité
+    $_SESSION['cart'][$product_id] += $quantity;
+    
+    // Message de confirmation
+    $_SESSION['flash_message'] = $product['name'] . " a été ajouté au panier!";
+    
+    // Redirection vers la page du panier
     header("Location: cart.php");
     exit();
 }
@@ -359,14 +368,13 @@ $page_title = $product['name'] . " - Comfort Chairs";
             <h3>Customer Reviews</h3>
             <?php
             if (isset($product_id)):
-                $review_query = "SELECT * FROM reviews WHERE product_id = ? ORDER BY date DESC";
-                $review_stmt = $db->prepare($review_query);
-                $review_stmt->bind_param("i", $product_id);
-                $review_stmt->execute();
-                $reviews = $review_stmt->get_result();
-                
-                if ($reviews->num_rows > 0): ?>
-                    <?php while ($review = $reviews->fetch_assoc()): ?>
+    $review_query = "SELECT * FROM reviews WHERE product_id = ? ORDER BY date DESC";
+    $review_stmt = $pdo->prepare($review_query); // Changé $db en $pdo
+    $review_stmt->execute([$product_id]);
+    $reviews = $review_stmt->fetchAll(PDO::FETCH_ASSOC);
+       
+                if (count($reviews) > 0): ?>
+                    <?php foreach ($reviews as $review): ?>
                         <div class="review">
                             <div class="review-header">
                                 <span class="review-author"><?= htmlspecialchars($review['author']) ?></span>
@@ -386,12 +394,10 @@ $page_title = $product['name'] . " - Comfort Chairs";
                                 <p><?= isset($review['content']) ? nl2br(htmlspecialchars($review['content'])) : '' ?></p>
                             </div>
                         </div>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 <?php else: ?>
                     <p>No reviews yet. Be the first to review this product!</p>
                 <?php endif;
-                
-                $review_stmt->close();
             endif; ?>
             
             <?php if (isset($_SESSION['user_id'])): ?>
@@ -431,7 +437,6 @@ $page_title = $product['name'] . " - Comfort Chairs";
         </div>
     <?php endif; ?>
 </main>
-
 
 
     <footer>
@@ -495,8 +500,3 @@ $page_title = $product['name'] . " - Comfort Chairs";
     </script>
 </body>
 </html>
-<?php
-if (isset($db) && $db instanceof mysqli) {
-    $db->close();
-}
-?>

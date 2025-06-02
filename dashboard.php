@@ -3,63 +3,63 @@ session_start();
 
 // Vérification admin
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
-    header('Location: login.php');
     exit();
 }
 
 require_once 'config.php';
 
-if (!isset($db) || !($db instanceof mysqli)) {
+if (!isset($pdo) || !($pdo instanceof PDO)) {
     die("Database connection error");
 }
 
-// Initialisation des variables avec des valeurs par défaut
+// Initialisation des variables
 $total_users = 0;
 $total_products = 0;
 $recent_users = [];
-$orders = []; // Initialisation cruciale
+$recent_orders = []; // Correction: variable cohérente avec le code
 $dashboard_error = null;
 
 try {
     // Nombre total d'utilisateurs
-    $result = $db->query("SELECT COUNT(*) as total_users FROM users");
-    $total_users = $result->fetch_assoc()['total_users'] ?? 0;
+    $stmt = $pdo->query("SELECT COUNT(*) as total_users FROM users");
+    $total_users = $stmt->fetchColumn() ?? 0;
     
     // Nombre total de produits
-    $result = $db->query("SELECT COUNT(*) as total_products FROM products");
-    $total_products = $result->fetch_assoc()['total_products'] ?? 0;
+    $stmt = $pdo->query("SELECT COUNT(*) as total_products FROM products");
+    $total_products = $stmt->fetchColumn() ?? 0;
     
     // Derniers utilisateurs inscrits
-    $result = $db->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
-    $recent_users = $result->fetch_all(MYSQLI_ASSOC) ?: [];
+    $stmt = $pdo->query("SELECT iduser, name, email, created_at FROM users ORDER BY iduser DESC LIMIT 5");
+    $recent_users = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     
-    // Produits avec faible stock
-    if ($is_admin) {
-    // Admin - voir les 5 dernières commandes de tous les utilisateurs
-    $result = $db->query("
-        SELECT o.id, o.order_date, o.total_amount, o.status, u.name as customer_name 
-        FROM orders o
-        JOIN users u ON o.user_id = u.iduser
-        ORDER BY o.order_date DESC 
-        LIMIT 5
-    ");
-} else {
-    // Utilisateur normal - voir ses 5 dernières commandes
-    $result = $db->query("
-        SELECT id, order_date, total_amount, status 
-        FROM orders 
-        WHERE user_id = ".intval($_SESSION['user_id'])." 
-        ORDER BY order_date DESC 
-        LIMIT 5
-    ");
-}
-$recent_orders = $result->fetch_all(MYSQLI_ASSOC) ?: [];
-} catch (Exception $e) {
+    // Commandes récentes
+    if (($_SESSION['role'] ?? '') === 'admin') {
+        // Admin - voir les 5 dernières commandes de tous les utilisateurs
+        $stmt = $pdo->query("
+            SELECT o.id, o.order_date, o.total_amount, o.status, u.name as customer_name 
+            FROM orders o
+            JOIN users u ON o.user_id = u.iduser
+            ORDER BY o.order_date DESC 
+            LIMIT 5
+        ");
+    } else {
+        // Utilisateur normal - voir ses 5 dernières commandes (version sécurisée)
+        $stmt = $pdo->prepare("
+            SELECT id, order_date, total_amount, status 
+            FROM orders 
+            WHERE user_id = ?
+            ORDER BY order_date DESC 
+            LIMIT 5
+        ");
+        $stmt->execute([$_SESSION['user_id']]);
+    }
+    $recent_orders = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+} catch (PDOException $e) {
     error_log("Dashboard error: " . $e->getMessage());
     $dashboard_error = "Erreur lors du chargement des données";
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
